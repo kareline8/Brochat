@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>БРО ЧАТ</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <div id="login-screen" class="panel login-panel">
+        <div class="logo">БРО ЧАТ</div>
+        <p class="subtitle">Введи логин и заходи в комнату</p>
+<form id="login-form" class="login-form">
+  <input
+    id="login"
+    type="text"
+    placeholder="Твой логин"
+    maxlength="20"
+    autocomplete="off"
+    required
+  />
+
+  <label class="color-picker">
+    <span>Цвет ника</span>
+    <input
+      id="color-input"
+      type="color"
+      value="#38bdf8"
+    />
+  </label>
+
+  <button type="submit">Войти</button>
+</form>
+
+      </div>
+
+      <div id="chat-screen" class="panel chat-panel hidden">
+        <aside class="sidebar">
+          <h2>Онлайн</h2>
+
+          <label class="bots-toggle">
+            <input type="checkbox" id="bots-toggle" checked />
+            <span>Тестовые боты (нагрузочный режим)</span>
+          </label>
+
+          <ul id="users-list" class="users-list"></ul>
+        </aside>
+
+        <main class="chat">
+<header class="chat-header">
+  <div class="chat-title">БРО ЧАТ</div>
+  <div class="chat-header-right">
+    <button
+      id="mute-toggle"
+      class="icon-button"
+      type="button"
+      title="Звук уведомлений"
+    >
+      🔔
+    </button>
+
+    <div class="zoom-control">
+      <span class="zoom-label">100%</span>
+<input
+  id="zoom-range"
+  type="range"
+  min="70"
+  max="200"
+  value="100"
+/>
+
+    </div>
+
+    <div class="chat-status" id="chat-status">Подключено</div>
+  </div>
+</header>
+
+          <ul id="messages" class="messages"></ul>
+
+          <!-- превью ответа (reply), как в телеграм -->
+          <div id="reply-preview" class="reply-preview hidden">
+            <div class="reply-info">
+              <span class="reply-author"></span>
+              <span class="reply-text"></span>
+            </div>
+            <button
+              type="button"
+              id="reply-cancel"
+              class="reply-cancel"
+              title="Отменить ответ"
+            >
+              ✕
+            </button>
+          </div>
+
+<form id="message-form" class="message-form">
+  <textarea
+    id="message-input"
+    placeholder="Напиши сообщение..."
+    autocomplete="off"
+    rows="1"
+  ></textarea>
+  <button type="submit" title="Отправить">➤</button>
+</form>
+
+        </main>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

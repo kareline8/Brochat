@@ -1,0 +1,13 @@
+{
+  "name": "simple-web-messenger",
+  "version": "1.0.0",
+  "description": "Простой стильный веб-мессенджер на локальном ПК",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "socket.io": "^4.8.0"
+  }
+}
