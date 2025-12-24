@@ -380,6 +380,15 @@ function renderMessage({
     ${attachmentsHtml}
   `;
 
+  li.querySelectorAll(".attachment-image").forEach((img) => {
+    img.addEventListener("click", () => {
+      const src = img.getAttribute("src");
+      if (src && src !== "#") {
+        openLightbox(src, img.getAttribute("alt") || "");
+      }
+    });
+  });
+
   const baseColor = color || getColorForLogin(login);
   const border = hexToRgba(baseColor, 0.8);
   const glow = hexToRgba(baseColor, 0.35);
