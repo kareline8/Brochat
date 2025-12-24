@@ -62,6 +62,11 @@ const attachButton = document.getElementById("attach-button");
 const attachmentInput = document.getElementById("attachment-input");
 const attachmentCount = document.getElementById("attachment-count");
 const attachmentPreview = document.getElementById("attachment-preview");
+const mediaLightbox = document.getElementById("media-lightbox");
+const lightboxImage = document.getElementById("lightbox-image");
+const lightboxClose = mediaLightbox
+  ? mediaLightbox.querySelector(".lightbox-close")
+  : null;
 
 // общий флаг: есть ли вообще тестовые боты в этой сборке
 const ENABLE_TEST_BOTS = true;
@@ -186,6 +191,33 @@ function renderAttachmentPreview(files) {
   });
 
   attachmentPreview.classList.remove("hidden");
+}
+
+function openLightbox(src, alt) {
+  if (!mediaLightbox || !lightboxImage) return;
+  lightboxImage.src = src;
+  lightboxImage.alt = alt || "Просмотр изображения";
+  mediaLightbox.classList.remove("hidden");
+}
+
+function closeLightbox() {
+  if (!mediaLightbox || !lightboxImage) return;
+  mediaLightbox.classList.add("hidden");
+  lightboxImage.src = "";
+}
+
+if (mediaLightbox) {
+  mediaLightbox.addEventListener("click", (event) => {
+    if (event.target === mediaLightbox) {
+      closeLightbox();
+    }
+  });
+}
+
+if (lightboxClose) {
+  lightboxClose.addEventListener("click", () => {
+    closeLightbox();
+  });
 }
 
 async function uploadAttachments(files) {
@@ -411,9 +443,9 @@ function renderMessage({
             .filter((item) => item.type && item.type.startsWith("image/"))
             .map(
               (item) =>
-                `<img src="${escapeHtml(item.url || "#")}" alt="${escapeHtml(
-                  item.name || "Фото"
-                )}" />`
+                `<img class="attachment-image" src="${escapeHtml(
+                  item.url || "#"
+                )}" alt="${escapeHtml(item.name || "Фото")}" />`
             )
             .join("")}
           ${safeAttachments
@@ -453,6 +485,15 @@ function renderMessage({
     <div class="text">${linkify(text)}</div>
     ${attachmentsHtml}
   `;
+
+  li.querySelectorAll(".attachment-image").forEach((img) => {
+    img.addEventListener("click", () => {
+      const src = img.getAttribute("src");
+      if (src && src !== "#") {
+        openLightbox(src, img.getAttribute("alt") || "");
+      }
+    });
+  });
 
   const baseColor = color || getColorForLogin(login);
   const border = hexToRgba(baseColor, 0.8);
