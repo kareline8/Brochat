@@ -153,23 +153,6 @@ function getPayloadSize(file) {
   return 0;
 }
 
-function inferMimeType(name) {
-  const lower = String(name || "").toLowerCase();
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".bmp")) return "image/bmp";
-  if (lower.endsWith(".svg")) return "image/svg+xml";
-  if (lower.endsWith(".mp4")) return "video/mp4";
-  if (lower.endsWith(".webm")) return "video/webm";
-  if (lower.endsWith(".ogg")) return "video/ogg";
-  if (lower.endsWith(".mov")) return "video/quicktime";
-  if (lower.endsWith(".m4v")) return "video/x-m4v";
-  if (lower.endsWith(".avi")) return "video/x-msvideo";
-  return "";
-}
-
 
 // --- обычная логика чата ---
 
@@ -218,7 +201,7 @@ io.on("connection", (socket) => {
         uploaded.push({
           name: String(file.name).slice(0, 120),
           size: buffer.length || fileSize,
-          type: String(file.type || inferMimeType(file.name)),
+          type: String(file.type || ""),
           url: `/uploads/${filename}`,
         });
       }
@@ -294,7 +277,7 @@ socket.on("chatMessage", (data) => {
         .map((item) => ({
           name: String(item.name || "").slice(0, 120),
           url: String(item.url || ""),
-          type: String(item.type || inferMimeType(item.name || item.url)),
+          type: String(item.type || ""),
           size: Number(item.size || 0),
         }))
         .filter((item) => item.url && item.name);
