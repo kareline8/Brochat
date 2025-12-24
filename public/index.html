@@ -95,14 +95,30 @@
           </div>
 
 <form id="message-form" class="message-form">
+  <button
+    type="button"
+    id="attach-button"
+    class="icon-button attach-button"
+    title="Прикрепить файлы"
+  >
+    📎
+  </button>
+  <input
+    id="attachment-input"
+    type="file"
+    multiple
+    class="hidden"
+  />
+  <span id="attachment-count" class="attachment-count hidden"></span>
   <textarea
     id="message-input"
     placeholder="Напиши сообщение..."
     autocomplete="off"
     rows="1"
   ></textarea>
-  <button type="submit" title="Отправить">➤</button>
+  <button type="submit" class="send-button" title="Отправить">➤</button>
 </form>
+<div id="attachment-preview" class="attachment-preview hidden"></div>
 
         </main>
       </div>
