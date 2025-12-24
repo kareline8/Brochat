@@ -1,7 +1,10 @@
 const path = require("path");
 const express = require("express");
 const http = require("http");
+const fs = require("fs");
 const { Server } = require("socket.io");
+
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 const app = express();
 const server = http.createServer(app);
@@ -9,13 +12,20 @@ const io = new Server(server, {
   cors: {
     origin: "*",
   },
+  maxHttpBufferSize: MAX_UPLOAD_BYTES,
 });
 
 app.use(express.static(path.join(__dirname, "public")));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 const users = new Map(); // socket.id -> { login, color }
 const history = [];
 const MAX_HISTORY = 200;
+
+const uploadsDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 // включать ли тестовых ботов (dev-режим)
 const ENABLE_TEST_BOTS = true;
@@ -123,6 +133,43 @@ function startTestBots() {
   console.log(`Тестовые боты запущены: ${BOT_NAMES.length} шт.`);
 }
 
+function buildSafeFilename(originalName) {
+  const baseName = path
+    .basename(originalName || "file", path.extname(originalName || ""))
+    .replace(/[^\w.-]+/g, "_")
+    .slice(0, 80);
+  const ext = path.extname(originalName || "");
+  const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  return `${baseName || "file"}-${uniqueSuffix}${ext}`;
+}
+
+function getPayloadSize(file) {
+  if (!file) return 0;
+  if (typeof file.size === "number") return file.size;
+  if (Buffer.isBuffer(file.data)) return file.data.length;
+  if (file.data && typeof file.data.byteLength === "number") {
+    return file.data.byteLength;
+  }
+  return 0;
+}
+
+function inferMimeType(name) {
+  const lower = String(name || "").toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".ogg")) return "video/ogg";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".m4v")) return "video/x-m4v";
+  if (lower.endsWith(".avi")) return "video/x-msvideo";
+  return "";
+}
+
 
 // --- обычная логика чата ---
 
@@ -133,6 +180,58 @@ io.on("connection", (socket) => {
   if (ENABLE_TEST_BOTS && !botsStarted) {
     startTestBots();
   }
+
+  socket.on("uploadFiles", async (payload, callback) => {
+    try {
+      const files = Array.isArray(payload?.files) ? payload.files : [];
+      const totalBytes = files.reduce(
+        (sum, file) => sum + getPayloadSize(file),
+        0
+      );
+
+      if (totalBytes > MAX_UPLOAD_BYTES) {
+        return callback?.({
+          ok: false,
+          message: "Суммарный размер вложений превышает 500 МБ.",
+        });
+      }
+
+      const uploaded = [];
+
+      for (const file of files) {
+        if (!file || !file.name || !file.data) {
+          continue;
+        }
+        const fileSize = getPayloadSize(file);
+        if (fileSize > MAX_UPLOAD_BYTES) {
+          return callback?.({
+            ok: false,
+            message: "Файл слишком большой. Максимум 500 МБ.",
+          });
+        }
+        const buffer = Buffer.isBuffer(file.data)
+          ? file.data
+          : Buffer.from(file.data);
+        const filename = buildSafeFilename(file.name);
+        const filePath = path.join(uploadsDir, filename);
+        await fs.promises.writeFile(filePath, buffer);
+        uploaded.push({
+          name: String(file.name).slice(0, 120),
+          size: buffer.length || fileSize,
+          type: String(file.type || inferMimeType(file.name)),
+          url: `/uploads/${filename}`,
+        });
+      }
+
+      return callback?.({ ok: true, files: uploaded });
+    } catch (error) {
+      console.error("upload error:", error);
+      return callback?.({
+        ok: false,
+        message: "Не удалось загрузить вложения.",
+      });
+    }
+  });
 
 
   socket.on("join", (payload) => {
@@ -183,11 +282,23 @@ socket.on("chatMessage", (data) => {
 
   let msgText = "";
   let replyTo = null;
+  let attachments = [];
 
   if (typeof data === "string") {
     msgText = data;
   } else if (data && typeof data === "object") {
     msgText = data.text;
+    if (Array.isArray(data.attachments)) {
+      attachments = data.attachments
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          name: String(item.name || "").slice(0, 120),
+          url: String(item.url || ""),
+          type: String(item.type || inferMimeType(item.name || item.url)),
+          size: Number(item.size || 0),
+        }))
+        .filter((item) => item.url && item.name);
+    }
     if (data.replyTo && typeof data.replyTo === "object") {
       replyTo = {
         login: String(data.replyTo.login || "").slice(0, 20),
@@ -199,13 +310,14 @@ socket.on("chatMessage", (data) => {
   }
 
   const msg = String(msgText || "").trim();
-  if (!msg) return;
+  if (!msg && attachments.length === 0) return;
 
   const payload = {
     login: user.login,
     color: user.color,
     text: msg,
     replyTo,
+    attachments,
     timestamp: new Date().toISOString(),
   };
 
