@@ -61,6 +61,10 @@ const botsToggle = document.getElementById("bots-toggle");
 const attachButton = document.getElementById("attach-button");
 const attachmentInput = document.getElementById("attachment-input");
 const attachmentCount = document.getElementById("attachment-count");
+const attachmentPreview = document.getElementById("attachment-preview");
+const lightbox = document.getElementById("media-lightbox");
+const lightboxImage = document.getElementById("lightbox-image");
+const lightboxClose = lightbox ? lightbox.querySelector(".lightbox-close") : null;
 
 // общий флаг: есть ли вообще тестовые боты в этой сборке
 const ENABLE_TEST_BOTS = true;
@@ -75,6 +79,7 @@ let botsEnabled = ENABLE_TEST_BOTS;
 let lastUserList = [];
 let replyTarget = null; // { login, text } или null
 let isUploading = false;
+let attachmentPreviewUrls = [];
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -138,6 +143,87 @@ function updateAttachmentCount() {
   attachmentCount.classList.remove("hidden");
 }
 
+function clearAttachmentPreview() {
+  if (!attachmentPreview) return;
+  attachmentPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+  attachmentPreviewUrls = [];
+  attachmentPreview.innerHTML = "";
+  attachmentPreview.classList.add("hidden");
+}
+
+function renderAttachmentPreview(files) {
+  if (!attachmentPreview) return;
+  clearAttachmentPreview();
+  if (!files.length) return;
+
+  const fragment = document.createDocumentFragment();
+
+  files.forEach((file) => {
+    if (!file) return;
+    if (file.type && file.type.startsWith("image/")) {
+      const url = URL.createObjectURL(file);
+      attachmentPreviewUrls.push(url);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "attachment-thumb";
+      button.setAttribute("aria-label", `Открыть изображение ${file.name}`);
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = file.name || "Изображение";
+      img.dataset.full = url;
+      img.classList.add("attachment-image");
+      button.appendChild(img);
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openLightbox(url, img.alt);
+      });
+      fragment.appendChild(button);
+    } else {
+      const item = document.createElement("div");
+      item.className = "attachment-file";
+      item.textContent = `${file.name} (${formatBytes(file.size)})`;
+      fragment.appendChild(item);
+    }
+  });
+
+  attachmentPreview.appendChild(fragment);
+  attachmentPreview.classList.remove("hidden");
+}
+
+function openLightbox(src, alt) {
+  if (!lightbox || !lightboxImage || !src) return;
+  lightboxImage.src = src;
+  lightboxImage.alt = alt || "Просмотр изображения";
+  lightbox.classList.remove("hidden");
+}
+
+function closeLightbox() {
+  if (!lightbox || !lightboxImage) return;
+  lightbox.classList.add("hidden");
+  lightboxImage.src = "";
+}
+
+if (lightboxClose) {
+  lightboxClose.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeLightbox();
+  });
+}
+
+if (lightbox) {
+  lightbox.addEventListener("click", (event) => {
+    if (event.target === lightbox) {
+      closeLightbox();
+    }
+  });
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && lightbox && !lightbox.classList.contains("hidden")) {
+    closeLightbox();
+  }
+});
+
 async function uploadAttachments(files) {
   const payload = {
     files: await Promise.all(
@@ -180,7 +266,10 @@ if (attachButton && attachmentInput) {
     attachmentInput.click();
   });
 
-  attachmentInput.addEventListener("change", updateAttachmentCount);
+  attachmentInput.addEventListener("change", () => {
+    updateAttachmentCount();
+    renderAttachmentPreview(Array.from(attachmentInput.files || []));
+  });
 }
 
 // --- звук уведомлений ---
@@ -349,26 +438,65 @@ function renderMessage({
   }
 
   const safeAttachments = Array.isArray(attachments) ? attachments : [];
-  const attachmentsHtml = safeAttachments.length
-    ? `
+
+  const isImageAttachment = (item) => {
+    if (!item) return false;
+    if (item.type && String(item.type).startsWith("image/")) return true;
+    const name = String(item.name || "");
+    return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+  };
+
+  const imageAttachments = safeAttachments.filter(isImageAttachment);
+  const fileAttachments = safeAttachments.filter((item) => !isImageAttachment(item));
+
+  const attachmentsHtml =
+    imageAttachments.length || fileAttachments.length
+      ? `
       <div class="attachments">
-        ${safeAttachments
-          .map((item) => {
-            const name = escapeHtml(item.name || "файл");
-            const url = escapeHtml(item.url || "#");
-            const sizeLabel = item.size ? formatBytes(item.size) : "";
-            return `
-              <div class="attachment-item">
-                <span>📎</span>
-                <a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a>
-                ${sizeLabel ? `<span>(${sizeLabel})</span>` : ""}
-              </div>
-            `;
-          })
-          .join("")}
+        ${
+          imageAttachments.length
+            ? `
+            <div class="attachment-images">
+              ${imageAttachments
+                .map((item) => {
+                  const name = escapeHtml(item.name || "изображение");
+                  const url = escapeHtml(item.url || "#");
+                  return `
+                    <button type="button" class="attachment-thumb" aria-label="Открыть изображение ${name}">
+                      <img class="attachment-image" src="${url}" alt="${name}" data-full="${url}" />
+                    </button>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+            : ""
+        }
+        ${
+          fileAttachments.length
+            ? `
+            <div class="attachment-files">
+              ${fileAttachments
+                .map((item) => {
+                  const name = escapeHtml(item.name || "файл");
+                  const url = escapeHtml(item.url || "#");
+                  const sizeLabel = item.size ? formatBytes(item.size) : "";
+                  return `
+                    <div class="attachment-item">
+                      <span>📎</span>
+                      <a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a>
+                      ${sizeLabel ? `<span>(${sizeLabel})</span>` : ""}
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+            : ""
+        }
       </div>
     `
-    : "";
+      : "";
 
   li.innerHTML = `
     <div class="meta">
@@ -381,8 +509,9 @@ function renderMessage({
   `;
 
   li.querySelectorAll(".attachment-image").forEach((img) => {
-    img.addEventListener("click", () => {
-      const src = img.getAttribute("src");
+    img.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const src = img.getAttribute("data-full") || img.getAttribute("src");
       if (src && src !== "#") {
         openLightbox(src, img.getAttribute("alt") || "");
       }
@@ -506,6 +635,7 @@ messageForm.addEventListener("submit", async (e) => {
   if (attachmentInput) {
     attachmentInput.value = "";
     updateAttachmentCount();
+    clearAttachmentPreview();
   }
 
   // убираем превью ответа после отправки
