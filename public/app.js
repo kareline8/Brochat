@@ -444,6 +444,7 @@ loginForm.addEventListener("submit", (e) => {
   loginScreen.classList.add("hidden");
   chatScreen.classList.remove("hidden");
   messageInput.focus();
+  isChatActive = true;
 });
 
 
@@ -522,6 +523,30 @@ socket.on("connect", () => {
 socket.on("disconnect", () => {
   chatStatus.textContent = "Отключено";
   chatStatus.style.color = "#f97373";
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!isChatActive || !messageInput) return;
+  if (event.defaultPrevented) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.isComposing) return;
+
+  const activeElement = document.activeElement;
+  if (
+    activeElement &&
+    (activeElement.tagName === "INPUT" ||
+      activeElement.tagName === "TEXTAREA" ||
+      activeElement.isContentEditable)
+  ) {
+    return;
+  }
+
+  if (event.key === "Escape") {
+    messageInput.blur();
+    return;
+  }
+
+  messageInput.focus();
 });
 
 socket.on("history", (items) => {
