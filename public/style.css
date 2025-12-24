@@ -424,6 +424,30 @@ body {
   color: #00e5ff;
 }
 
+.message .attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.message .attachment-item {
+  font-size: 12px;
+  color: var(--text-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message .attachment-item a {
+  color: #7dd3fc;
+  text-decoration: none;
+}
+
+.message .attachment-item a:hover {
+  text-decoration: underline;
+}
+
 .message.me {
   margin-left: auto;
 }
@@ -460,6 +484,7 @@ body {
   display: flex;
   gap: 8px;
   background: rgba(15, 23, 42, 0.96);
+  align-items: center;
 }
 
 .message-form input,
@@ -488,7 +513,7 @@ body {
   box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
 }
 
-.message-form button {
+.message-form .send-button {
   border-radius: 999px;
   border: none;
   width: 40px;
@@ -504,15 +529,40 @@ body {
   transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.1s ease;
 }
 
-.message-form button:hover {
+.message-form .send-button:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.95);
 }
 
-.message-form button:active {
+.message-form .send-button:active {
   transform: translateY(0);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.95);
+}
+
+.attach-button {
+  font-size: 18px;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: var(--text-soft);
+}
+
+.attach-button:hover {
+  color: var(--text);
+}
+
+.attachment-count {
+  font-size: 12px;
+  color: var(--text-soft);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.8);
 }
 
 /* Utils */
@@ -656,4 +706,3 @@ body {
 .reply-block .reply-snippet {
   color: var(--text-soft);
 }
-
