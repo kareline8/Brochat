@@ -431,6 +431,43 @@ body {
   margin-top: 6px;
 }
 
+.message .attachment-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attachment-thumb {
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 12px;
+  overflow: hidden;
+  max-width: 540px;
+  max-height: 420px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.attachment-thumb:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.6);
+}
+
+.attachment-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .message .attachment-item {
   font-size: 12px;
   color: var(--text-soft);
@@ -560,6 +597,30 @@ body {
   font-size: 12px;
   color: var(--text-soft);
   padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.attachment-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.attachment-preview .attachment-thumb {
+  max-width: 120px;
+  max-height: 90px;
+  border-radius: 10px;
+}
+
+.attachment-preview .attachment-file {
+  font-size: 12px;
+  color: var(--text-soft);
+  padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.8);
@@ -705,4 +766,46 @@ body {
 
 .reply-block .reply-snippet {
   color: var(--text-soft);
+}
+
+/* Lightbox */
+.media-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 22, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 24px;
+}
+
+.media-lightbox.hidden {
+  display: none;
+}
+
+.media-lightbox img {
+  max-width: min(960px, 92vw);
+  max-height: 86vh;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  border: none;
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--text);
+  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+
+.lightbox-close:hover {
+  background: rgba(30, 41, 59, 0.85);
 }
