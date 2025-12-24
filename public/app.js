@@ -58,6 +58,15 @@ const muteToggle = document.getElementById("mute-toggle");
 const zoomRange = document.getElementById("zoom-range");
 const zoomLabel = document.querySelector(".zoom-label");
 const botsToggle = document.getElementById("bots-toggle");
+const attachButton = document.getElementById("attach-button");
+const attachmentInput = document.getElementById("attachment-input");
+const attachmentCount = document.getElementById("attachment-count");
+const attachmentPreview = document.getElementById("attachment-preview");
+const mediaLightbox = document.getElementById("media-lightbox");
+const lightboxImage = document.getElementById("lightbox-image");
+const lightboxClose = mediaLightbox
+  ? mediaLightbox.querySelector(".lightbox-close")
+  : null;
 
 // общий флаг: есть ли вообще тестовые боты в этой сборке
 const ENABLE_TEST_BOTS = true;
@@ -71,6 +80,9 @@ let audioCtx = null;
 let botsEnabled = ENABLE_TEST_BOTS;
 let lastUserList = [];
 let replyTarget = null; // { login, text } или null
+let isUploading = false;
+let previewObjectUrls = [];
+let isChatActive = false;
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -109,6 +121,129 @@ function autoSizeTextarea() {
   messageInput.style.height = newHeight + "px";
 }
 
+function formatBytes(bytes) {
+  if (!bytes) return "0 Б";
+  const units = ["Б", "КБ", "МБ", "ГБ"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function updateAttachmentCount() {
+  if (!attachmentInput || !attachmentCount) return;
+  const files = Array.from(attachmentInput.files || []);
+  if (files.length === 0) {
+    attachmentCount.textContent = "";
+    attachmentCount.classList.add("hidden");
+    return;
+  }
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+  attachmentCount.textContent = `${files.length} файл(ов) • ${formatBytes(totalSize)}`;
+  attachmentCount.classList.remove("hidden");
+}
+
+function clearAttachmentPreview() {
+  if (previewObjectUrls.length > 0) {
+    previewObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    previewObjectUrls = [];
+  }
+  if (attachmentPreview) {
+    attachmentPreview.innerHTML = "";
+    attachmentPreview.classList.add("hidden");
+  }
+}
+
+function renderAttachmentPreview(files) {
+  if (!attachmentPreview) return;
+  clearAttachmentPreview();
+  if (!files.length) return;
+
+  files.forEach((file) => {
+    const item = document.createElement("div");
+    item.classList.add("attachment-preview-item");
+
+    if (file.type && file.type.startsWith("image/")) {
+      const img = document.createElement("img");
+      const url = URL.createObjectURL(file);
+      previewObjectUrls.push(url);
+      img.src = url;
+      img.alt = file.name;
+      item.appendChild(img);
+    } else if (file.type && file.type.startsWith("video/")) {
+      const video = document.createElement("video");
+      const url = URL.createObjectURL(file);
+      previewObjectUrls.push(url);
+      video.src = url;
+      video.controls = true;
+      video.preload = "metadata";
+      item.appendChild(video);
+    }
+
+    const name = document.createElement("div");
+    name.classList.add("attachment-preview-name");
+    name.textContent = file.name;
+    item.appendChild(name);
+
+    attachmentPreview.appendChild(item);
+  });
+
+  attachmentPreview.classList.remove("hidden");
+}
+
+function openLightbox(src, alt) {
+  if (!mediaLightbox || !lightboxImage) return;
+  lightboxImage.src = src;
+  lightboxImage.alt = alt || "Просмотр изображения";
+  mediaLightbox.classList.remove("hidden");
+}
+
+function closeLightbox() {
+  if (!mediaLightbox || !lightboxImage) return;
+  mediaLightbox.classList.add("hidden");
+  lightboxImage.src = "";
+}
+
+if (mediaLightbox) {
+  mediaLightbox.addEventListener("click", (event) => {
+    if (event.target === mediaLightbox) {
+      closeLightbox();
+    }
+  });
+}
+
+if (lightboxClose) {
+  lightboxClose.addEventListener("click", () => {
+    closeLightbox();
+  });
+}
+
+async function uploadAttachments(files) {
+  const payload = {
+    files: await Promise.all(
+      files.map(async (file) => ({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: await file.arrayBuffer(),
+      }))
+    ),
+  };
+
+  return new Promise((resolve, reject) => {
+    socket.emit("uploadFiles", payload, (response) => {
+      if (!response?.ok) {
+        reject(new Error(response?.message || "Не удалось загрузить вложения."));
+        return;
+      }
+      resolve(Array.isArray(response.files) ? response.files : []);
+    });
+  });
+}
+
 if (messageInput) {
   messageInput.addEventListener("input", autoSizeTextarea);
   autoSizeTextarea();
@@ -120,6 +255,18 @@ if (messageInput) {
       messageForm.requestSubmit();
     }
     // Shift+Enter — обычная новая строка, ничего не трогаем
+  });
+}
+
+if (attachButton && attachmentInput) {
+  attachButton.addEventListener("click", () => {
+    attachmentInput.click();
+  });
+
+  attachmentInput.addEventListener("change", () => {
+    const files = Array.from(attachmentInput.files || []);
+    updateAttachmentCount();
+    renderAttachmentPreview(files);
   });
 }
 
@@ -253,7 +400,16 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
-function renderMessage({ login, color, text, timestamp, local, silent, replyTo }) {
+function renderMessage({
+  login,
+  color,
+  text,
+  timestamp,
+  local,
+  silent,
+  replyTo,
+  attachments,
+}) {
   const li = document.createElement("li");
   li.classList.add("message");
   if (login === currentLogin) {
@@ -279,6 +435,48 @@ function renderMessage({ login, color, text, timestamp, local, silent, replyTo }
     `;
   }
 
+  const safeAttachments = Array.isArray(attachments) ? attachments : [];
+  const attachmentsHtml = safeAttachments.length
+    ? `
+      <div class="attachments">
+        <div class="attachment-media">
+          ${safeAttachments
+            .filter((item) => item.type && item.type.startsWith("image/"))
+            .map(
+              (item) =>
+                `<img class="attachment-image" src="${escapeHtml(
+                  item.url || "#"
+                )}" alt="${escapeHtml(item.name || "Фото")}" />`
+            )
+            .join("")}
+          ${safeAttachments
+            .filter((item) => item.type && item.type.startsWith("video/"))
+            .map(
+              (item) =>
+                `<video src="${escapeHtml(
+                  item.url || "#"
+                )}" controls preload="metadata"></video>`
+            )
+            .join("")}
+        </div>
+        ${safeAttachments
+          .map((item) => {
+            const name = escapeHtml(item.name || "файл");
+            const url = escapeHtml(item.url || "#");
+            const sizeLabel = item.size ? formatBytes(item.size) : "";
+            return `
+              <div class="attachment-item">
+                <span>📎</span>
+                <a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a>
+                ${sizeLabel ? `<span>(${sizeLabel})</span>` : ""}
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    `
+    : "";
+
   li.innerHTML = `
     <div class="meta">
       <span class="author">${escapeHtml(login)}</span>
@@ -286,7 +484,17 @@ function renderMessage({ login, color, text, timestamp, local, silent, replyTo }
     </div>
     ${replyHtml}
     <div class="text">${linkify(text)}</div>
+    ${attachmentsHtml}
   `;
+
+  li.querySelectorAll(".attachment-image").forEach((img) => {
+    img.addEventListener("click", () => {
+      const src = img.getAttribute("src");
+      if (src && src !== "#") {
+        openLightbox(src, img.getAttribute("alt") || "");
+      }
+    });
+  });
 
   const baseColor = color || getColorForLogin(login);
   const border = hexToRgba(baseColor, 0.8);
@@ -343,13 +551,40 @@ loginForm.addEventListener("submit", (e) => {
   loginScreen.classList.add("hidden");
   chatScreen.classList.remove("hidden");
   messageInput.focus();
+  isChatActive = true;
 });
 
 
-messageForm.addEventListener("submit", (e) => {
+messageForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (isUploading) return;
+
   const text = messageInput.value.trim();
-  if (!text) return;
+  const files = Array.from((attachmentInput && attachmentInput.files) || []);
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+
+  if (!text && files.length === 0) return;
+
+  if (totalSize > 500 * 1024 * 1024) {
+    alert("Суммарный размер вложений не должен превышать 500 МБ.");
+    return;
+  }
+
+  let uploadedAttachments = [];
+  if (files.length > 0) {
+    isUploading = true;
+    messageForm.classList.add("is-uploading");
+    try {
+      uploadedAttachments = await uploadAttachments(files);
+    } catch (error) {
+      alert(error.message || "Ошибка загрузки вложений.");
+      isUploading = false;
+      messageForm.classList.remove("is-uploading");
+      return;
+    }
+    isUploading = false;
+    messageForm.classList.remove("is-uploading");
+  }
 
   const ts = new Date().toISOString();
 
@@ -361,6 +596,7 @@ messageForm.addEventListener("submit", (e) => {
     timestamp: ts,
     local: true,
     replyTo: replyTarget ? { ...replyTarget } : null,
+    attachments: uploadedAttachments,
   };
 
   renderMessage(localPayload);
@@ -369,10 +605,16 @@ messageForm.addEventListener("submit", (e) => {
   socket.emit("chatMessage", {
     text,
     replyTo: replyTarget ? { ...replyTarget } : null,
+    attachments: uploadedAttachments,
   });
 
   messageInput.value = "";
   autoSizeTextarea(); // вернуть высоту
+  if (attachmentInput) {
+    attachmentInput.value = "";
+    updateAttachmentCount();
+  }
+  clearAttachmentPreview();
 
   // убираем превью ответа после отправки
   if (typeof hideReplyPreview === "function") {
@@ -391,6 +633,30 @@ socket.on("disconnect", () => {
   chatStatus.style.color = "#f97373";
 });
 
+document.addEventListener("keydown", (event) => {
+  if (!isChatActive || !messageInput) return;
+  if (event.defaultPrevented) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.isComposing) return;
+
+  const activeElement = document.activeElement;
+  if (
+    activeElement &&
+    (activeElement.tagName === "INPUT" ||
+      activeElement.tagName === "TEXTAREA" ||
+      activeElement.isContentEditable)
+  ) {
+    return;
+  }
+
+  if (event.key === "Escape") {
+    messageInput.blur();
+    return;
+  }
+
+  messageInput.focus();
+});
+
 socket.on("history", (items) => {
   messagesList.innerHTML = "";
   if (!Array.isArray(items)) return;
@@ -403,6 +669,7 @@ socket.on("history", (items) => {
       color: msg.color,
       text: msg.text,
       timestamp: msg.timestamp,
+      attachments: msg.attachments || [],
       replyTo: msg.replyTo || null,
       local: false,
       silent: true,
@@ -412,7 +679,7 @@ socket.on("history", (items) => {
 
 
 socket.on("chatMessage", (payload) => {
-  const { login, text, timestamp, color, isBot, replyTo } = payload;
+  const { login, text, timestamp, color, isBot, replyTo, attachments } = payload;
 
   if (login === currentLogin) return;
   if (!botsEnabled && isBot) return;
@@ -422,6 +689,7 @@ socket.on("chatMessage", (payload) => {
     color,
     text,
     timestamp,
+    attachments: attachments || [],
     replyTo: replyTo || null,
     local: false,
   });
@@ -552,5 +820,3 @@ function linkify(text) {
     return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${urlPart}</a>${trail}`;
   });
 }
-
-
