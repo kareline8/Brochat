@@ -61,12 +61,6 @@ const botsToggle = document.getElementById("bots-toggle");
 const attachButton = document.getElementById("attach-button");
 const attachmentInput = document.getElementById("attachment-input");
 const attachmentCount = document.getElementById("attachment-count");
-const attachmentPreview = document.getElementById("attachment-preview");
-const mediaLightbox = document.getElementById("media-lightbox");
-const lightboxImage = document.getElementById("lightbox-image");
-const lightboxClose = mediaLightbox
-  ? mediaLightbox.querySelector(".lightbox-close")
-  : null;
 
 // общий флаг: есть ли вообще тестовые боты в этой сборке
 const ENABLE_TEST_BOTS = true;
@@ -81,8 +75,6 @@ let botsEnabled = ENABLE_TEST_BOTS;
 let lastUserList = [];
 let replyTarget = null; // { login, text } или null
 let isUploading = false;
-let previewObjectUrls = [];
-let isChatActive = false;
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -146,81 +138,6 @@ function updateAttachmentCount() {
   attachmentCount.classList.remove("hidden");
 }
 
-function clearAttachmentPreview() {
-  if (previewObjectUrls.length > 0) {
-    previewObjectUrls.forEach((url) => URL.revokeObjectURL(url));
-    previewObjectUrls = [];
-  }
-  if (attachmentPreview) {
-    attachmentPreview.innerHTML = "";
-    attachmentPreview.classList.add("hidden");
-  }
-}
-
-function renderAttachmentPreview(files) {
-  if (!attachmentPreview) return;
-  clearAttachmentPreview();
-  if (!files.length) return;
-
-  files.forEach((file) => {
-    const item = document.createElement("div");
-    item.classList.add("attachment-preview-item");
-
-    if (file.type && file.type.startsWith("image/")) {
-      const img = document.createElement("img");
-      const url = URL.createObjectURL(file);
-      previewObjectUrls.push(url);
-      img.src = url;
-      img.alt = file.name;
-      item.appendChild(img);
-    } else if (file.type && file.type.startsWith("video/")) {
-      const video = document.createElement("video");
-      const url = URL.createObjectURL(file);
-      previewObjectUrls.push(url);
-      video.src = url;
-      video.controls = true;
-      video.preload = "metadata";
-      item.appendChild(video);
-    }
-
-    const name = document.createElement("div");
-    name.classList.add("attachment-preview-name");
-    name.textContent = file.name;
-    item.appendChild(name);
-
-    attachmentPreview.appendChild(item);
-  });
-
-  attachmentPreview.classList.remove("hidden");
-}
-
-function openLightbox(src, alt) {
-  if (!mediaLightbox || !lightboxImage) return;
-  lightboxImage.src = src;
-  lightboxImage.alt = alt || "Просмотр изображения";
-  mediaLightbox.classList.remove("hidden");
-}
-
-function closeLightbox() {
-  if (!mediaLightbox || !lightboxImage) return;
-  mediaLightbox.classList.add("hidden");
-  lightboxImage.src = "";
-}
-
-if (mediaLightbox) {
-  mediaLightbox.addEventListener("click", (event) => {
-    if (event.target === mediaLightbox) {
-      closeLightbox();
-    }
-  });
-}
-
-if (lightboxClose) {
-  lightboxClose.addEventListener("click", () => {
-    closeLightbox();
-  });
-}
-
 async function uploadAttachments(files) {
   const payload = {
     files: await Promise.all(
@@ -263,11 +180,7 @@ if (attachButton && attachmentInput) {
     attachmentInput.click();
   });
 
-  attachmentInput.addEventListener("change", () => {
-    const files = Array.from(attachmentInput.files || []);
-    updateAttachmentCount();
-    renderAttachmentPreview(files);
-  });
+  attachmentInput.addEventListener("change", updateAttachmentCount);
 }
 
 // --- звук уведомлений ---
@@ -439,26 +352,6 @@ function renderMessage({
   const attachmentsHtml = safeAttachments.length
     ? `
       <div class="attachments">
-        <div class="attachment-media">
-          ${safeAttachments
-            .filter((item) => item.type && item.type.startsWith("image/"))
-            .map(
-              (item) =>
-                `<img class="attachment-image" src="${escapeHtml(
-                  item.url || "#"
-                )}" alt="${escapeHtml(item.name || "Фото")}" />`
-            )
-            .join("")}
-          ${safeAttachments
-            .filter((item) => item.type && item.type.startsWith("video/"))
-            .map(
-              (item) =>
-                `<video src="${escapeHtml(
-                  item.url || "#"
-                )}" controls preload="metadata"></video>`
-            )
-            .join("")}
-        </div>
         ${safeAttachments
           .map((item) => {
             const name = escapeHtml(item.name || "файл");
@@ -614,7 +507,6 @@ messageForm.addEventListener("submit", async (e) => {
     attachmentInput.value = "";
     updateAttachmentCount();
   }
-  clearAttachmentPreview();
 
   // убираем превью ответа после отправки
   if (typeof hideReplyPreview === "function") {
