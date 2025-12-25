@@ -553,6 +553,9 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
 
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -571,8 +574,10 @@ body {
   height: 45px;
   border-radius: 50%;
   flex-shrink: 0;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  box-shadow: 0 0 12px rgba(15, 23, 42, 0.65);
+  border: 2px solid var(--avatar-border, rgba(148, 163, 184, 0.7));
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.35),
+    0 0 14px var(--avatar-glow, rgba(15, 23, 42, 0.65));
 }
 
 .message-avatar {
@@ -580,8 +585,10 @@ body {
   height: 68px;
   border-radius: 50%;
   flex-shrink: 0;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  box-shadow: 0 0 12px rgba(15, 23, 42, 0.65);
+  border: 2px solid var(--avatar-border, rgba(148, 163, 184, 0.7));
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.35),
+    0 0 14px var(--avatar-glow, rgba(15, 23, 42, 0.65));
 }
 
 .user-name {
@@ -870,8 +877,8 @@ body {
   background: rgba(15, 23, 42, 0.85);
   color: var(--text);
   border-radius: 999px;
-  padding: 4px 8px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 18px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -931,7 +938,7 @@ body {
 .reaction-option {
   border: none;
   background: transparent;
-  font-size: 18px;
+  font-size: 36px;
   cursor: pointer;
   transition: transform 0.12s ease;
 }

@@ -97,6 +97,7 @@ const REACTION_EMOJIS = [
 const messageReactions = new Map();
 const messageReactionSelections = new Map();
 const messageElements = new Map();
+const readMessageIds = new Set();
 let messageIdCounter = 0;
 let activeReactionTarget = null;
 
@@ -255,6 +256,12 @@ function setMessageChecks(checkEl, state) {
   checkEl.classList.toggle("is-sent", nextState === "sent");
 }
 
+function markMessageRead(messageId) {
+  if (!messageId || readMessageIds.has(messageId)) return;
+  readMessageIds.add(messageId);
+  socket.emit("messageRead", { messageId });
+}
+
 function ensureReactionState(messageId) {
   if (!messageReactions.has(messageId)) {
     messageReactions.set(messageId, new Map());
@@ -305,6 +312,15 @@ function toggleReaction(messageId, emoji) {
       reactionCounts.set(emoji, next);
     }
   } else {
+    selected.forEach((existingEmoji) => {
+      const next = (reactionCounts.get(existingEmoji) || 1) - 1;
+      if (next <= 0) {
+        reactionCounts.delete(existingEmoji);
+      } else {
+        reactionCounts.set(existingEmoji, next);
+      }
+    });
+    selected.clear();
     selected.add(emoji);
     reactionCounts.set(emoji, (reactionCounts.get(emoji) || 0) + 1);
   }
@@ -374,6 +390,14 @@ document.addEventListener("click", (event) => {
   if (reactionPicker.classList.contains("hidden")) return;
   if (reactionPicker.contains(event.target)) return;
   closeReactionPicker();
+});
+
+document.addEventListener("click", (event) => {
+  if (!replyTarget) return;
+  if (event.target.closest(".message-bubble")) return;
+  if (reactionPicker && reactionPicker.contains(event.target)) return;
+  if (replyPreview && replyPreview.contains(event.target)) return;
+  hideReplyPreview();
 });
 
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
@@ -1364,14 +1388,17 @@ function renderMessage({
   attachments,
   avatar,
   avatarId,
+  messageId,
+  readAll,
 }) {
   const li = document.createElement("li");
   li.classList.add("message");
   if (login === currentLogin) {
     li.classList.add("me");
   }
-  const messageId = `msg-${messageIdCounter++}`;
-  li.dataset.messageId = messageId;
+  const resolvedMessageId =
+    messageId || `msg-${Date.now()}-${messageIdCounter++}`;
+  li.dataset.messageId = resolvedMessageId;
 
   const time = new Date(timestamp);
   const timeStr = time.toLocaleTimeString([], {
@@ -1498,7 +1525,11 @@ function renderMessage({
   const avatarUrl = avatar || getAvatarById(avatarId) || getAvatarForLogin(login);
 
   const isMine = login === currentLogin;
-  const initialCheckState = isMine ? (local ? "sent" : "read") : null;
+  const initialCheckState = isMine
+    ? readAll
+      ? "read"
+      : "sent"
+    : null;
 
   const statusHtml = `
     <div class="message-status">
@@ -1577,6 +1608,12 @@ function renderMessage({
     authorEl.style.color = baseColor;
   }
 
+  const avatarEl = li.querySelector(".message-avatar");
+  if (avatarEl) {
+    avatarEl.style.setProperty("--avatar-border", baseColor);
+    avatarEl.style.setProperty("--avatar-glow", hexToRgba(baseColor, 0.45));
+  }
+
   // клик по сообщению — выбрать его как цель для ответа
   if (bubbleEl) {
     bubbleEl.addEventListener("click", (event) => {
@@ -1594,19 +1631,15 @@ function renderMessage({
   if (reactionTrigger) {
     reactionTrigger.addEventListener("click", (event) => {
       event.stopPropagation();
-      openReactionPicker(messageId, reactionTrigger);
+      openReactionPicker(resolvedMessageId, reactionTrigger);
     });
   }
-  messageElements.set(messageId, { reactionsEl });
-  updateReactionDisplay(messageId);
-
   const checkEl = li.querySelector(".message-checks");
-  if (checkEl && initialCheckState === "sent") {
-    setTimeout(() => {
-      if (checkEl.isConnected) {
-        setMessageChecks(checkEl, "read");
-      }
-    }, 1200);
+  messageElements.set(resolvedMessageId, { reactionsEl, checkEl });
+  updateReactionDisplay(resolvedMessageId);
+
+  if (!isMine && resolvedMessageId) {
+    markMessageRead(resolvedMessageId);
   }
 
   appendMessageElement(li, { countUnread: !local && !silent });
@@ -1678,6 +1711,7 @@ messageForm.addEventListener("submit", async (e) => {
   }
 
   const ts = new Date().toISOString();
+  const messageId = `msg-${Date.now()}-${messageIdCounter++}`;
 
   // локально показываем сразу, с учётом reply
   const localPayload = {
@@ -1690,12 +1724,15 @@ messageForm.addEventListener("submit", async (e) => {
     local: true,
     replyTo: replyTarget ? { ...replyTarget } : null,
     attachments: uploadedAttachments,
+    messageId,
+    readAll: false,
   };
 
   renderMessage(localPayload);
 
   // на сервер отправляем объект, а не голую строку
   socket.emit("chatMessage", {
+    messageId,
     text,
     replyTo: replyTarget ? { ...replyTarget } : null,
     attachments: uploadedAttachments,
@@ -1758,6 +1795,7 @@ socket.on("history", (items) => {
     if (!botsEnabled && msg.isBot) return;
 
     renderMessage({
+      messageId: msg.messageId,
       login: msg.login,
       color: msg.color,
       text: msg.text,
@@ -1766,6 +1804,7 @@ socket.on("history", (items) => {
       avatarId: msg.avatarId,
       attachments: msg.attachments || [],
       replyTo: msg.replyTo || null,
+      readAll: Boolean(msg.readAll),
       local: false,
       silent: true,
     });
@@ -1784,12 +1823,15 @@ socket.on("chatMessage", (payload) => {
     attachments,
     avatar,
     avatarId,
+    messageId,
+    readAll,
   } = payload;
 
   if (login === currentLogin) return;
   if (!botsEnabled && isBot) return;
 
   renderMessage({
+    messageId,
     login,
     color,
     text,
@@ -1798,8 +1840,17 @@ socket.on("chatMessage", (payload) => {
     avatarId,
     attachments: attachments || [],
     replyTo: replyTo || null,
+    readAll: Boolean(readAll),
     local: false,
   });
+});
+
+socket.on("messageReadAll", (payload) => {
+  const messageId = payload?.messageId;
+  if (!messageId) return;
+  const entry = messageElements.get(messageId);
+  if (!entry?.checkEl) return;
+  setMessageChecks(entry.checkEl, "read");
 });
 
 
@@ -1873,6 +1924,8 @@ function renderUserList() {
     avatar.className = "user-avatar";
     avatar.src = avatarUrl;
     avatar.alt = name;
+    avatar.style.setProperty("--avatar-border", baseColor);
+    avatar.style.setProperty("--avatar-glow", hexToRgba(baseColor, 0.35));
 
     const label = document.createElement("span");
     label.className = "user-name";
@@ -1903,6 +1956,8 @@ function renderUserList() {
       avatar.className = "user-avatar";
       avatar.src = avatarUrl;
       avatar.alt = name;
+      avatar.style.setProperty("--avatar-border", baseColor);
+      avatar.style.setProperty("--avatar-glow", hexToRgba(baseColor, 0.35));
 
       const label = document.createElement("span");
       label.className = "user-name";
