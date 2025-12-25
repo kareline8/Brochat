@@ -566,10 +566,18 @@ body {
     background 0.12s ease;
 }
 
-.user-avatar,
-.message-avatar {
+.user-avatar {
   width: 45px;
   height: 45px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 0 12px rgba(15, 23, 42, 0.65);
+}
+
+.message-avatar {
+  width: 68px;
+  height: 68px;
   border-radius: 50%;
   flex-shrink: 0;
   border: 1px solid rgba(148, 163, 184, 0.4);
@@ -772,7 +780,7 @@ body {
 .message-bubble {
   max-width: 70%;
   border-radius: 22px;
-  padding: 8px 10px;
+  padding: 8px 10px 18px;
   background: var(--bubble-bg, rgba(15, 23, 42, 0.96));
   border: 2px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
   display: flex;
@@ -782,33 +790,10 @@ body {
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.35);
 }
 
-.message-bubble::after {
-  content: "";
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  background: var(--bubble-bg, rgba(15, 23, 42, 0.96));
-  border: 2px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
-  border-left: none;
-  border-top: none;
-  transform: rotate(45deg);
-  top: 16px;
-  left: -5px;
-}
-
-.message.me .message-bubble::after {
-  left: auto;
-  right: -5px;
-  border-right: none;
-  border-bottom: none;
-  border-left: 2px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
-  border-top: 2px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
-}
-
 .message .meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   font-size: var(--meta-font-size);
 }
@@ -818,13 +803,39 @@ body {
   color: var(--accent);
 }
 
-.message .time {
-  color: var(--text-soft);
-}
-
 .message .text {
   word-wrap: break-word;
   white-space: pre-wrap;
+}
+
+.message-status {
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-end;
+  font-size: var(--meta-font-size);
+  color: var(--text-soft);
+  line-height: 1;
+}
+
+.message-checks {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.message-time {
+  color: var(--text-soft);
+}
+
+.message:not(.me) .message-checks {
+  display: none;
+}
+
+.chat-emoji {
+  font-size: calc(var(--message-font-size) * 2);
+  line-height: 1;
+  display: inline-block;
 }
 
 .message .text a {
