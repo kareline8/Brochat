@@ -555,7 +555,7 @@ function renderMessage({
   );
 
   const attachmentsHtml =
-    imageAttachments.length || fileAttachments.length
+    imageAttachments.length || fileAttachments.length || audioAttachments.length
       ? `
       <div class="attachments">
         ${
