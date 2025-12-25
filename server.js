@@ -5,6 +5,7 @@ const fs = require("fs");
 const { Server } = require("socket.io");
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+const MAX_AVATAR_LENGTH = 200000;
 
 const app = express();
 const server = http.createServer(app);
@@ -303,6 +304,7 @@ io.on("connection", (socket) => {
     let login = "";
     let color = null;
     let avatarId = null;
+    let avatar = null;
 
     if (typeof payload === "string") {
       login = payload;
@@ -314,13 +316,22 @@ io.on("connection", (socket) => {
       if (payload.avatarId) {
         avatarId = String(payload.avatarId);
       }
+      if (payload.avatar && typeof payload.avatar === "string") {
+        avatar = payload.avatar;
+      }
     }
 
     let name = login.trim().slice(0, 20);
     if (!name) name = "Гость";
 
-    const avatar = getAvatarById(avatarId) || getAvatarForName(name);
-    const user = { login: name, color, avatarId, avatar };
+    const safeAvatar =
+      avatar &&
+      avatar.startsWith("data:image/") &&
+      avatar.length <= MAX_AVATAR_LENGTH
+        ? avatar
+        : null;
+    const finalAvatar = safeAvatar || getAvatarById(avatarId) || getAvatarForName(name);
+    const user = { login: name, color, avatarId, avatar: finalAvatar };
     users.set(socket.id, user);
 
     // персональное приветствие
