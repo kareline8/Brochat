@@ -147,10 +147,38 @@ function getPayloadSize(file) {
   if (!file) return 0;
   if (typeof file.size === "number") return file.size;
   if (Buffer.isBuffer(file.data)) return file.data.length;
+  if (file.data && file.data.type === "Buffer" && Array.isArray(file.data.data)) {
+    return file.data.data.length;
+  }
+  if (Array.isArray(file.data)) return file.data.length;
   if (file.data && typeof file.data.byteLength === "number") {
     return file.data.byteLength;
   }
+  if (typeof file.data === "string") {
+    return Buffer.byteLength(file.data, "base64");
+  }
   return 0;
+}
+
+function toBuffer(data) {
+  if (!data) return null;
+  if (Buffer.isBuffer(data)) return data;
+  if (data.type === "Buffer" && Array.isArray(data.data)) {
+    return Buffer.from(data.data);
+  }
+  if (Array.isArray(data)) {
+    return Buffer.from(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data);
+  }
+  if (typeof data === "string") {
+    return Buffer.from(data, "base64");
+  }
+  return null;
 }
 
 
@@ -192,9 +220,10 @@ io.on("connection", (socket) => {
             message: "Файл слишком большой. Максимум 500 МБ.",
           });
         }
-        const buffer = Buffer.isBuffer(file.data)
-          ? file.data
-          : Buffer.from(file.data);
+        const buffer = toBuffer(file.data);
+        if (!buffer || buffer.length === 0) {
+          continue;
+        }
         const filename = buildSafeFilename(file.name);
         const filePath = path.join(uploadsDir, filename);
         await fs.promises.writeFile(filePath, buffer);
