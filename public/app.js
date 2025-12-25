@@ -81,6 +81,25 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+const REACTION_EMOJIS = [
+  "👍",
+  "❤️",
+  "🔥",
+  "😁",
+  "🤯",
+  "😢",
+  "👏",
+  "🎉",
+  "🤔",
+  "👀",
+];
+
+const messageReactions = new Map();
+const messageReactionSelections = new Map();
+const messageElements = new Map();
+let messageIdCounter = 0;
+let activeReactionTarget = null;
+
 const socket = io();
 
 const replyPreview = document.getElementById("reply-preview");
@@ -227,6 +246,121 @@ function hideReplyPreview() {
   }
 }
 
+function setMessageChecks(checkEl, state) {
+  if (!checkEl) return;
+  const nextState = state === "read" ? "read" : "sent";
+  checkEl.dataset.state = nextState;
+  checkEl.textContent = nextState === "read" ? "✓✓" : "✓";
+  checkEl.classList.toggle("is-read", nextState === "read");
+  checkEl.classList.toggle("is-sent", nextState === "sent");
+}
+
+function ensureReactionState(messageId) {
+  if (!messageReactions.has(messageId)) {
+    messageReactions.set(messageId, new Map());
+  }
+  if (!messageReactionSelections.has(messageId)) {
+    messageReactionSelections.set(messageId, new Set());
+  }
+}
+
+function updateReactionDisplay(messageId) {
+  const messageEntry = messageElements.get(messageId);
+  if (!messageEntry) return;
+  const { reactionsEl } = messageEntry;
+  if (!reactionsEl) return;
+
+  ensureReactionState(messageId);
+  const reactionCounts = messageReactions.get(messageId);
+  const selected = messageReactionSelections.get(messageId);
+
+  reactionsEl.innerHTML = "";
+  if (!reactionCounts || reactionCounts.size === 0) return;
+
+  reactionCounts.forEach((count, emoji) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "reaction-chip";
+    button.textContent = `${emoji} ${count}`;
+    button.classList.toggle("is-selected", selected.has(emoji));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleReaction(messageId, emoji);
+    });
+    reactionsEl.appendChild(button);
+  });
+}
+
+function toggleReaction(messageId, emoji) {
+  ensureReactionState(messageId);
+  const reactionCounts = messageReactions.get(messageId);
+  const selected = messageReactionSelections.get(messageId);
+
+  if (selected.has(emoji)) {
+    selected.delete(emoji);
+    const next = (reactionCounts.get(emoji) || 1) - 1;
+    if (next <= 0) {
+      reactionCounts.delete(emoji);
+    } else {
+      reactionCounts.set(emoji, next);
+    }
+  } else {
+    selected.add(emoji);
+    reactionCounts.set(emoji, (reactionCounts.get(emoji) || 0) + 1);
+  }
+
+  updateReactionDisplay(messageId);
+}
+
+function createReactionPicker() {
+  const picker = document.createElement("div");
+  picker.className = "reaction-picker hidden";
+
+  REACTION_EMOJIS.forEach((emoji) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "reaction-option";
+    button.textContent = emoji;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!activeReactionTarget) return;
+      toggleReaction(activeReactionTarget.messageId, emoji);
+      closeReactionPicker();
+    });
+    picker.appendChild(button);
+  });
+
+  document.body.appendChild(picker);
+  return picker;
+}
+
+const reactionPicker = createReactionPicker();
+
+function openReactionPicker(messageId, anchorEl) {
+  if (!reactionPicker || !anchorEl) return;
+  activeReactionTarget = { messageId, anchorEl };
+  reactionPicker.classList.remove("hidden");
+
+  const rect = anchorEl.getBoundingClientRect();
+  const pickerRect = reactionPicker.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - pickerRect.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - pickerRect.width - 8));
+
+  let top = rect.top - pickerRect.height - 10;
+  if (top < 8) {
+    top = rect.bottom + 10;
+  }
+
+  reactionPicker.style.left = `${left}px`;
+  reactionPicker.style.top = `${top}px`;
+}
+
+function closeReactionPicker() {
+  if (!reactionPicker) return;
+  reactionPicker.classList.add("hidden");
+  activeReactionTarget = null;
+}
+
 if (replyCancelBtn) {
   replyCancelBtn.addEventListener("click", () => {
     hideReplyPreview();
@@ -234,6 +368,13 @@ if (replyCancelBtn) {
 }
 
 renderAvatarOptions();
+
+document.addEventListener("click", (event) => {
+  if (!reactionPicker) return;
+  if (reactionPicker.classList.contains("hidden")) return;
+  if (reactionPicker.contains(event.target)) return;
+  closeReactionPicker();
+});
 
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 
@@ -932,6 +1073,7 @@ if (messageInput) {
 
 if (messagesList) {
   messagesList.addEventListener("scroll", () => {
+    closeReactionPicker();
     if (isMessagesNearBottom()) {
       clearUnreadMessages();
       return;
@@ -1228,6 +1370,8 @@ function renderMessage({
   if (login === currentLogin) {
     li.classList.add("me");
   }
+  const messageId = `msg-${messageIdCounter++}`;
+  li.dataset.messageId = messageId;
 
   const time = new Date(timestamp);
   const timeStr = time.toLocaleTimeString([], {
@@ -1353,10 +1497,21 @@ function renderMessage({
 
   const avatarUrl = avatar || getAvatarById(avatarId) || getAvatarForLogin(login);
 
+  const isMine = login === currentLogin;
+  const initialCheckState = isMine ? (local ? "sent" : "read") : null;
+
   const statusHtml = `
     <div class="message-status">
       <span class="message-time">${timeStr}</span>
-      ${login === currentLogin ? `<span class="message-checks">✓✓</span>` : ""}
+      ${
+        isMine
+          ? `<span class="message-checks ${
+              initialCheckState === "read" ? "is-read" : "is-sent"
+            }" data-state="${initialCheckState}">${
+              initialCheckState === "read" ? "✓✓" : "✓"
+            }</span>`
+          : ""
+      }
     </div>
   `;
 
@@ -1376,6 +1531,8 @@ function renderMessage({
       }</div>
       ${attachmentsHtml}
       ${statusHtml}
+      <div class="message-reactions" aria-label="Реакции"></div>
+      <button type="button" class="reaction-trigger" title="Поставить реакцию">😊</button>
     </div>
   `;
 
@@ -1430,6 +1587,26 @@ function renderMessage({
       };
       showReplyPreview();
     });
+  }
+
+  const reactionsEl = li.querySelector(".message-reactions");
+  const reactionTrigger = li.querySelector(".reaction-trigger");
+  if (reactionTrigger) {
+    reactionTrigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openReactionPicker(messageId, reactionTrigger);
+    });
+  }
+  messageElements.set(messageId, { reactionsEl });
+  updateReactionDisplay(messageId);
+
+  const checkEl = li.querySelector(".message-checks");
+  if (checkEl && initialCheckState === "sent") {
+    setTimeout(() => {
+      if (checkEl.isConnected) {
+        setMessageChecks(checkEl, "read");
+      }
+    }, 1200);
   }
 
   appendMessageElement(li, { countUnread: !local && !silent });
