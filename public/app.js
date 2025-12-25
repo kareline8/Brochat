@@ -98,10 +98,8 @@ const loginForm = document.getElementById("login-form");
 const loginInput = document.getElementById("login");
 const colorInput = document.getElementById("color-input");
 const avatarOptionsEl = document.getElementById("avatar-options");
-const avatarToggle = document.getElementById("avatar-toggle");
 const avatarUploadInput = document.getElementById("avatar-upload");
 const avatarUploadPreview = document.getElementById("avatar-upload-preview");
-const avatarUploadPreviewWrap = document.querySelector(".avatar-upload-preview");
 const avatarUploadClear = document.getElementById("avatar-upload-clear");
 const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
@@ -141,7 +139,7 @@ let currentColor = null;
 let currentAvatarId = null;
 let currentAvatar = null;
 let selectedAvatarId = avatarCatalog[0]?.id || null;
-let customAvatarDataUrl = null;
+let customAvatar = null;
 let isMuted = false;
 let audioCtx = null;
 
@@ -151,6 +149,7 @@ let lastUserList = [];
 let replyTarget = null; // { login, text } или null
 let isUploading = false;
 let attachmentPreviewUrls = [];
+let isChatActive = false;
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -182,6 +181,7 @@ function renderAvatarOptions() {
     }
 
     button.addEventListener("click", () => {
+      clearCustomAvatar();
       selectedAvatarId = option.id;
       customAvatarDataUrl = null;
       currentAvatar = null;
@@ -253,34 +253,76 @@ if (replyCancelBtn) {
 
 renderAvatarOptions();
 
-if (avatarToggle && avatarOptionsEl) {
-  avatarToggle.addEventListener("click", () => {
-    avatarOptionsEl.classList.toggle("hidden");
-  });
+const MAX_AVATAR_SIZE = 512 * 1024;
+
+function updateCustomAvatarPreview(avatarUrl) {
+  customAvatar = avatarUrl;
+  if (avatarUploadPreview) {
+    avatarUploadPreview.src = avatarUrl;
+    avatarUploadPreview.classList.remove("hidden");
+  }
+  if (avatarUploadClear) {
+    avatarUploadClear.classList.remove("hidden");
+  }
+  if (avatarOptionsEl) {
+    avatarOptionsEl
+      .querySelectorAll(".avatar-option")
+      .forEach((el) => el.classList.remove("is-selected"));
+  }
+  selectedAvatarId = null;
 }
 
-if (avatarUploadInput) {
-  avatarUploadInput.addEventListener("change", () => {
-    const file = avatarUploadInput.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      alert("Выберите изображение для аватара.");
-      avatarUploadInput.value = "";
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        showCustomAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-  });
+function clearCustomAvatar() {
+  customAvatar = null;
+  if (avatarUploadPreview) {
+    avatarUploadPreview.src = "";
+    avatarUploadPreview.classList.add("hidden");
+  }
+  if (avatarUploadClear) {
+    avatarUploadClear.classList.add("hidden");
+  }
+  if (avatarUploadInput) {
+    avatarUploadInput.value = "";
+  }
+  if (!selectedAvatarId) {
+    selectedAvatarId = avatarCatalog[0]?.id || null;
+  }
+  if (avatarOptionsEl && selectedAvatarId) {
+    avatarOptionsEl.querySelectorAll(".avatar-option").forEach((el) => {
+      el.classList.toggle("is-selected", el.dataset.avatarId === selectedAvatarId);
+    });
+  }
 }
 
 if (avatarUploadClear) {
   avatarUploadClear.addEventListener("click", () => {
     clearCustomAvatar();
+  });
+}
+
+if (avatarUploadInput) {
+  avatarUploadInput.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Можно загружать только изображения.");
+      avatarUploadInput.value = "";
+      return;
+    }
+    if (file.size > MAX_AVATAR_SIZE) {
+      alert("Аватар не должен превышать 512 КБ.");
+      avatarUploadInput.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        updateCustomAvatarPreview(result);
+      }
+    };
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1102,9 +1144,9 @@ function renderMessage({
 
   const bubbleEl = li.querySelector(".message-bubble");
   if (bubbleEl) {
-    bubbleEl.style.borderColor = border;
+    bubbleEl.style.setProperty("--bubble-border", border);
+    bubbleEl.style.setProperty("--bubble-bg", bubbleBg);
     bubbleEl.style.boxShadow = `0 0 12px ${glow}`;
-    bubbleEl.style.background = bubbleBg;
   }
 
   const authorEl = li.querySelector(".author");
@@ -1140,8 +1182,8 @@ loginForm.addEventListener("submit", (e) => {
 
   currentLogin = value;
   currentColor = (colorInput && colorInput.value) || "#38bdf8";
-  currentAvatarId = selectedAvatarId || avatarCatalog[0]?.id || null;
-  currentAvatar = customAvatarDataUrl || null;
+  currentAvatar = customAvatar;
+  currentAvatarId = customAvatar ? null : selectedAvatarId || avatarCatalog[0]?.id || null;
 
   socket.emit("join", {
     login: value,

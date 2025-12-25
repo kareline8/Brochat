@@ -22,21 +22,24 @@
   />
 
   <div class="avatar-picker">
-    <div class="avatar-picker-header">
-      <span>Аватар</span>
-      <button type="button" id="avatar-toggle" class="avatar-toggle">
-        Выбрать аватар
-      </button>
-    </div>
-    <div id="avatar-options" class="avatar-options hidden"></div>
-    <label class="avatar-upload">
-      <input id="avatar-upload" type="file" accept="image/*" />
-      <span>Загрузить свой аватар</span>
-    </label>
-    <div class="avatar-upload-preview hidden">
-      <img id="avatar-upload-preview" alt="Ваш аватар" />
-      <button type="button" id="avatar-upload-clear" class="avatar-upload-clear">
-        Убрать
+    <span>Аватар</span>
+    <div id="avatar-options" class="avatar-options"></div>
+    <div class="avatar-upload">
+      <label class="avatar-upload-label">
+        <input id="avatar-upload" type="file" accept="image/*" />
+        <span>Загрузить свой</span>
+      </label>
+      <img
+        id="avatar-upload-preview"
+        class="avatar-upload-preview hidden"
+        alt="Загруженный аватар"
+      />
+      <button
+        type="button"
+        id="avatar-upload-clear"
+        class="avatar-upload-clear hidden"
+      >
+        Сбросить
       </button>
     </div>
   </div>
