@@ -65,6 +65,14 @@ const attachmentPreview = document.getElementById("attachment-preview");
 const lightbox = document.getElementById("media-lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
 const lightboxClose = lightbox ? lightbox.querySelector(".lightbox-close") : null;
+const audioPlayer = document.getElementById("audio-player");
+const audioElement = document.getElementById("audio-element");
+const audioTitle = document.getElementById("audio-title");
+const audioMeta = document.getElementById("audio-meta");
+const audioPlayButton = document.getElementById("audio-play");
+const audioCloseButton = document.getElementById("audio-close");
+const audioProgress = document.getElementById("audio-progress");
+const audioTime = document.getElementById("audio-time");
 
 // общий флаг: есть ли вообще тестовые боты в этой сборке
 const ENABLE_TEST_BOTS = true;
@@ -80,6 +88,7 @@ let lastUserList = [];
 let replyTarget = null; // { login, text } или null
 let isUploading = false;
 let attachmentPreviewUrls = [];
+let currentAudioUrl = null;
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -215,6 +224,84 @@ if (lightbox) {
     if (event.target === lightbox) {
       closeLightbox();
     }
+  });
+}
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const minutes = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function updateAudioUI() {
+  if (!audioElement || !audioPlayButton || !audioProgress || !audioTime) return;
+  const duration = Number.isFinite(audioElement.duration) ? audioElement.duration : 0;
+  const current = Number.isFinite(audioElement.currentTime) ? audioElement.currentTime : 0;
+  const progress = duration > 0 ? (current / duration) * 100 : 0;
+  audioProgress.value = String(progress);
+  audioTime.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+  audioPlayButton.textContent = audioElement.paused ? "▶" : "❚❚";
+  audioPlayButton.setAttribute(
+    "aria-label",
+    audioElement.paused ? "Воспроизвести" : "Пауза"
+  );
+}
+
+function openAudioPlayer({ url, name, size }) {
+  if (!audioPlayer || !audioElement || !url) return;
+
+  if (currentAudioUrl !== url) {
+    currentAudioUrl = url;
+    audioElement.src = url;
+    if (audioTitle) audioTitle.textContent = name || "Без названия";
+    if (audioMeta) {
+      audioMeta.textContent = size ? formatBytes(size) : "";
+    }
+  }
+
+  audioPlayer.classList.remove("hidden");
+  audioElement
+    .play()
+    .then(() => updateAudioUI())
+    .catch(() => updateAudioUI());
+}
+
+if (audioPlayButton && audioElement) {
+  audioPlayButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (audioElement.paused) {
+      audioElement.play().catch(() => null);
+    } else {
+      audioElement.pause();
+    }
+  });
+}
+
+if (audioCloseButton && audioPlayer && audioElement) {
+  audioCloseButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    audioElement.pause();
+    audioElement.removeAttribute("src");
+    audioElement.load();
+    currentAudioUrl = null;
+    audioPlayer.classList.add("hidden");
+    updateAudioUI();
+  });
+}
+
+if (audioProgress && audioElement) {
+  audioProgress.addEventListener("input", () => {
+    const duration = Number.isFinite(audioElement.duration) ? audioElement.duration : 0;
+    if (duration <= 0) return;
+    const nextTime = (Number(audioProgress.value) / 100) * duration;
+    audioElement.currentTime = nextTime;
+  });
+}
+
+if (audioElement) {
+  ["timeupdate", "loadedmetadata", "play", "pause", "ended"].forEach((eventName) => {
+    audioElement.addEventListener(eventName, updateAudioUI);
   });
 }
 
@@ -446,11 +533,21 @@ function renderMessage({
     return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
   };
 
+  const isAudioAttachment = (item) => {
+    if (!item) return false;
+    if (item.type && String(item.type).startsWith("audio/")) return true;
+    const name = String(item.name || "");
+    return /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(name);
+  };
+
   const imageAttachments = safeAttachments.filter(isImageAttachment);
-  const fileAttachments = safeAttachments.filter((item) => !isImageAttachment(item));
+  const audioAttachments = safeAttachments.filter(isAudioAttachment);
+  const fileAttachments = safeAttachments.filter(
+    (item) => !isImageAttachment(item) && !isAudioAttachment(item)
+  );
 
   const attachmentsHtml =
-    imageAttachments.length || fileAttachments.length
+    imageAttachments.length || audioAttachments.length || fileAttachments.length
       ? `
       <div class="attachments">
         ${
@@ -464,6 +561,34 @@ function renderMessage({
                   return `
                     <button type="button" class="attachment-thumb" aria-label="Открыть изображение ${name}">
                       <img class="attachment-image" src="${url}" alt="${name}" data-full="${url}" />
+                    </button>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+            : ""
+        }
+        ${
+          audioAttachments.length
+            ? `
+            <div class="attachment-audio">
+              ${audioAttachments
+                .map((item) => {
+                  const name = escapeHtml(item.name || "Аудио");
+                  const url = escapeHtml(item.url || "#");
+                  const sizeLabel = item.size ? formatBytes(item.size) : "";
+                  return `
+                    <button
+                      type="button"
+                      class="audio-attachment"
+                      data-audio-url="${url}"
+                      data-audio-name="${name}"
+                      data-audio-size="${item.size || ""}"
+                    >
+                      <span class="audio-icon">🎵</span>
+                      <span class="audio-name">${name}</span>
+                      ${sizeLabel ? `<span class="audio-size">(${sizeLabel})</span>` : ""}
                     </button>
                   `;
                 })
@@ -515,6 +640,19 @@ function renderMessage({
       if (src && src !== "#") {
         openLightbox(src, img.getAttribute("alt") || "");
       }
+    });
+  });
+
+  li.querySelectorAll(".audio-attachment").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const url = button.getAttribute("data-audio-url");
+      if (!url || url === "#") return;
+      openAudioPlayer({
+        url,
+        name: button.getAttribute("data-audio-name") || "Аудио",
+        size: Number(button.getAttribute("data-audio-size")) || 0,
+      });
     });
   });
 
