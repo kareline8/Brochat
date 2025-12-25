@@ -396,6 +396,7 @@ document.addEventListener("click", (event) => {
   if (!replyTarget) return;
   if (event.target.closest(".message-bubble")) return;
   if (reactionPicker && reactionPicker.contains(event.target)) return;
+  if (event.target.closest(".message-form")) return;
   if (replyPreview && replyPreview.contains(event.target)) return;
   hideReplyPreview();
 });
@@ -1525,24 +1526,16 @@ function renderMessage({
   const avatarUrl = avatar || getAvatarById(avatarId) || getAvatarForLogin(login);
 
   const isMine = login === currentLogin;
-  const initialCheckState = isMine
-    ? readAll
-      ? "read"
-      : "sent"
-    : null;
+  const initialCheckState = readAll ? "read" : "sent";
 
   const statusHtml = `
     <div class="message-status">
       <span class="message-time">${timeStr}</span>
-      ${
-        isMine
-          ? `<span class="message-checks ${
-              initialCheckState === "read" ? "is-read" : "is-sent"
-            }" data-state="${initialCheckState}">${
-              initialCheckState === "read" ? "✓✓" : "✓"
-            }</span>`
-          : ""
-      }
+      <span class="message-checks ${
+        initialCheckState === "read" ? "is-read" : "is-sent"
+      }" data-state="${initialCheckState}">${
+        initialCheckState === "read" ? "✓✓" : "✓"
+      }</span>
     </div>
   `;
 
