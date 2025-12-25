@@ -233,10 +233,7 @@ let cropDragState = null;
 function showReplyPreview() {
   if (!replyPreview || !replyAuthorEl || !replyTextEl || !replyTarget) return;
   replyAuthorEl.textContent = replyTarget.login;
-  replyTextEl.textContent =
-    replyTarget.text.length > 120
-      ? replyTarget.text.slice(0, 120) + "…"
-      : replyTarget.text;
+  replyTextEl.textContent = truncateText(replyTarget.text, 120);
   replyPreview.classList.remove("hidden");
 }
 
@@ -1293,6 +1290,14 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
+function truncateText(text, limit) {
+  const chars = Array.from(String(text ?? ""));
+  if (chars.length <= limit) {
+    return chars.join("");
+  }
+  return `${chars.slice(0, limit).join("")}…`;
+}
+
 function getStickerPayload(text) {
   const trimmed = String(text || "").trim();
   const match = trimmed.match(/^\[\[sticker:([a-z0-9_-]+)\]\]$/i);
@@ -1411,7 +1416,7 @@ function renderMessage({
   let replyHtml = "";
   if (replyTo && replyTo.login && replyTo.text) {
     const raw = String(replyTo.text || "");
-    const snippet = raw.length > 120 ? raw.slice(0, 120) + "…" : raw;
+    const snippet = truncateText(raw, 120);
     replyHtml = `
       <div class="reply-block">
         <div class="reply-author">${escapeHtml(replyTo.login)}</div>
@@ -1911,6 +1916,7 @@ function renderUserList() {
       typeof u === "string"
         ? getAvatarForLogin(name)
         : u.avatar || getAvatarById(u.avatarId) || getAvatarForLogin(name);
+    const baseColor = userColor;
 
     const li = document.createElement("li");
     const avatar = document.createElement("img");
@@ -1927,7 +1933,6 @@ function renderUserList() {
     li.appendChild(avatar);
     li.appendChild(label);
 
-    const baseColor = userColor;
     li.style.borderColor = hexToRgba(baseColor, 0.7);
     li.style.color = baseColor;
     li.style.boxShadow = `0 0 0 1px ${hexToRgba(baseColor, 0.3)}`;
