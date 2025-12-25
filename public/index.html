@@ -138,6 +138,14 @@
   >
     📎
   </button>
+  <button
+    type="button"
+    id="emoji-button"
+    class="icon-button emoji-button"
+    title="Эмодзи и стикеры"
+  >
+    😄
+  </button>
   <input
     id="attachment-input"
     type="file"
@@ -153,6 +161,24 @@
   ></textarea>
   <button type="submit" class="send-button" title="Отправить">➤</button>
 </form>
+<div id="emoji-panel" class="emoji-panel hidden" aria-label="Панель эмодзи">
+  <div class="emoji-panel-header">
+    <button type="button" class="emoji-tab active" data-tab="emoji">Эмодзи</button>
+    <button type="button" class="emoji-tab" data-tab="stickers">Стикеры</button>
+  </div>
+  <div class="emoji-panel-search">
+    <input
+      type="search"
+      id="emoji-search"
+      placeholder="Поиск эмодзи..."
+      autocomplete="off"
+    />
+  </div>
+  <div class="emoji-panel-body">
+    <div id="emoji-grid" class="emoji-grid"></div>
+    <div id="sticker-grid" class="sticker-grid hidden"></div>
+  </div>
+</div>
 <div id="attachment-preview" class="attachment-preview hidden"></div>
 <div id="media-lightbox" class="media-lightbox hidden">
   <button type="button" class="lightbox-close" aria-label="Закрыть">✕</button>

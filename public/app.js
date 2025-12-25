@@ -59,6 +59,11 @@ const zoomRange = document.getElementById("zoom-range");
 const zoomLabel = document.querySelector(".zoom-label");
 const botsToggle = document.getElementById("bots-toggle");
 const attachButton = document.getElementById("attach-button");
+const emojiButton = document.getElementById("emoji-button");
+const emojiPanel = document.getElementById("emoji-panel");
+const emojiSearch = document.getElementById("emoji-search");
+const emojiGrid = document.getElementById("emoji-grid");
+const stickerGrid = document.getElementById("sticker-grid");
 const attachmentInput = document.getElementById("attachment-input");
 const attachmentCount = document.getElementById("attachment-count");
 const attachmentPreview = document.getElementById("attachment-preview");
@@ -285,6 +290,209 @@ function renderAttachmentPreview(files) {
   attachmentPreview.classList.remove("hidden");
 }
 
+const EMOJI_GROUPS = [
+  {
+    name: "Смайлы",
+    emojis: "😀 😁 😂 🤣 😃 😄 😅 😆 😉 😊 😋 😎 😍 🥰 😘 😗 😙 😚 🙂 🤗 🤩 🤔 🤨 😐 😑 😶 🙄 😏 😣 😥 😮 🤐 😯 😪 😫 😴 😌 😛 😜 😝 🤤 😒 😓 😔 😕 🙃 🫠 🥲 😖 😞 😟 😤 😢 😭 😦 😧 😨 😩 😬 😰 😱 😳 🤯 😵 😵‍💫 🥴 😡 😠 🤬 🤡 👻 💀 ☠️ 👽 🤖 🎃 😺 😸 😹 😻 😼 😽 🙀 😿 😾".split(
+      " "
+    ),
+  },
+  {
+    name: "Жесты",
+    emojis: "👍 👎 👊 ✊ 🤛 🤜 🤞 ✌️ 🤟 🤘 🤙 🫶 🤲 👐 🙌 👏 🤝 🙏 ✋ 🤚 🖐️ 👋 🤗 🤝 🤌 👌 ✍️ 🤳 💪 🦾 🫱 🫲 🫳 🫴 🫵".split(
+      " "
+    ),
+  },
+  {
+    name: "Люди",
+    emojis: "👶 🧒 👦 👧 🧑 👱 👨 👩 🧔 🧑‍🦰 🧑‍🦱 🧑‍🦳 🧑‍🦲 👴 👵 🧓 👨‍⚕️ 👩‍⚕️ 👨‍🎓 👩‍🎓 👨‍🏫 👩‍🏫 👨‍💻 👩‍💻 👨‍🎨 👩‍🎨 👨‍🚀 👩‍🚀 👨‍🍳 👩‍🍳 👮 👷 💂 🕵️ 🧑‍💼 🧑‍🔧 🧑‍🚒 🧑‍🚜 🧑‍⚖️ 🧑‍✈️ 🧑‍🎤 🧑‍🎧 🧑‍🏭 🧑‍🔬 🧑‍🔭 🧑‍🏫 🧑‍🎓 🧑‍🍳".split(
+      " "
+    ),
+  },
+  {
+    name: "Животные",
+    emojis: "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🐣 🐥 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🪰 🪲 🪳 🕷️ 🦂 🐢 🐍 🦎 🐙 🦑 🦐 🦞 🐠 🐟 🐡 🐬 🦈 🐳 🐋 🐊 🦭".split(
+      " "
+    ),
+  },
+  {
+    name: "Еда",
+    emojis: "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🫑 🥦 🥬 🥒 🌶️ 🌽 🥕 🧄 🧅 🥔 🍠 🍄 🥜 🌰 🍞 🥐 🥖 🫓 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🥙 🌮 🌯 🫔 🥗 🥘 🫕 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🦪 🍤 🍙 🍚 🍘 🍥 🥠 🥡 🍢 🍡 🍧 🍨 🍦 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪".split(
+      " "
+    ),
+  },
+  {
+    name: "Активности",
+    emojis: "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🪃 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🛹 🛼 🛷 ⛸️ 🥌 🪂 🏂 🏋️ 🤸 🤼 🤺 🤾 ⛹️ 🏌️ 🧘 🏄 🚣 🏊 🤽 🚴 🚵 🏇 🧗 🤹 🎯 🎮 🎲 🧩 🎹 🥁 🎸 🎻 🎺 🎷 🎤 🎧".split(
+      " "
+    ),
+  },
+  {
+    name: "Путешествия",
+    emojis: "🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🛵 🏍️ 🚲 🛴 ✈️ 🛫 🛬 🛩️ 🚁 🚀 🛸 🚢 ⛵ 🚤 🛥️ 🚂 🚆 🚇 🚊 🚉 🚝 🚄 🛰️ 🗺️ 🧭 ⛽ 🛣️ 🗿 🗽 🗼 🏰 🏯 🏟️ 🎡 🎢 🎠 🌋 🏔️ ⛰️ 🏝️ 🏜️ 🏖️".split(
+      " "
+    ),
+  },
+  {
+    name: "Объекты",
+    emojis: "⌚ 📱 💻 🖥️ 🖨️ 🖱️ ⌨️ 💽 💾 💿 📀 📷 📸 📹 🎥 📽️ 🎬 📺 📻 🎙️ 🎚️ 🎛️ ⏱️ ⏲️ ⏰ 🕰️ 🔋 🔌 💡 🔦 🕯️ 🪔 🔥 🧯 🛢️ 💸 💵 💴 💶 💷 💰 💳 🪙 💎 ⚖️ 🔧 🔨 ⚒️ 🛠️ ⛏️ 🪓 🪚 🔩 ⚙️ 🧰 🔪 🗡️ ⚔️ 🛡️ 🚬 🧨 💣 🔮 🧿 🪬 📿 💈 🧹 🧺 🧻 🪣 🧴 🧼 🧽 🪥 🧪 🧫 🧬 🔭 🔬 🩻 🩹 🩺 💊 🩼 🪒 🚪 🛏️ 🛋️ 🪑 🚽 🚿 🛁 🧸 🪆".split(
+      " "
+    ),
+  },
+  {
+    name: "Символы",
+    emojis: "❤️ 🧡 💛 💚 💙 💜 🤍 🤎 🖤 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️ ✡️ 🔯 🕎 ☯️ ☦️ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 🆕 🆓 🆒 🆙 🆗 ✅ ☑️ ✔️ ✖️ ➕ ➖ ➗ ➰ ➿ ♾️ ™️ ©️ ®️ 💯 🔥 ⚡ 🎵 🎶 💢 💥 💫 💤 ✨ 🌟 ⭐ 🌈 ☀️ 🌤️ ⛅ 🌧️ ⛈️ ❄️ ☃️ 🎉 🎊".split(
+      " "
+    ),
+  },
+];
+
+const emojiCatalog = EMOJI_GROUPS.flatMap((group) =>
+  group.emojis.map((symbol) => ({
+    symbol,
+    keywords: [group.name.toLowerCase()],
+  }))
+);
+
+const STICKERS = [
+  { id: "bro_heart", label: "Бро любит", emoji: "❤️", colors: ["#f43f5e", "#f97316"] },
+  { id: "bro_cool", label: "Бро крут", emoji: "😎", colors: ["#38bdf8", "#6366f1"] },
+  { id: "bro_party", label: "Бро пати", emoji: "🥳", colors: ["#f59e0b", "#ec4899"] },
+  { id: "bro_lol", label: "Бро лол", emoji: "🤣", colors: ["#22c55e", "#16a34a"] },
+  { id: "bro_fire", label: "Бро огонь", emoji: "🔥", colors: ["#f97316", "#ef4444"] },
+  { id: "bro_thumb", label: "Бро ок", emoji: "👍", colors: ["#0ea5e9", "#14b8a6"] },
+  { id: "bro_rocket", label: "Бро взлет", emoji: "🚀", colors: ["#8b5cf6", "#3b82f6"] },
+  { id: "bro_ok", label: "Бро топ", emoji: "👌", colors: ["#10b981", "#06b6d4"] },
+  { id: "bro_spark", label: "Бро вайб", emoji: "✨", colors: ["#eab308", "#facc15"] },
+  { id: "bro_peace", label: "Бро мир", emoji: "✌️", colors: ["#22c55e", "#84cc16"] },
+];
+
+function createStickerSvg({ id, emoji, label, colors }) {
+  const gradientId = `g-${id}`;
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${colors[0]}" />
+          <stop offset="100%" stop-color="${colors[1]}" />
+        </linearGradient>
+      </defs>
+      <rect width="240" height="240" rx="48" fill="url(#${gradientId})" />
+      <circle cx="60" cy="52" r="10" fill="rgba(255,255,255,0.2)" />
+      <circle cx="190" cy="190" r="18" fill="rgba(255,255,255,0.12)" />
+      <text x="50%" y="46%" text-anchor="middle" font-size="96" dominant-baseline="middle">${emoji}</text>
+      <text x="50%" y="78%" text-anchor="middle" font-size="26" fill="#0f172a" font-family="Segoe UI, sans-serif" font-weight="700">
+        ${label}
+      </text>
+    </svg>
+  `;
+}
+
+const stickerData = STICKERS.map((sticker) => {
+  const svg = createStickerSvg(sticker);
+  const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return { ...sticker, uri };
+});
+
+const stickerMap = new Map(stickerData.map((sticker) => [sticker.id, sticker]));
+
+function renderEmojiGrid(filter = "") {
+  if (!emojiGrid) return;
+  const query = filter.trim().toLowerCase();
+  emojiGrid.innerHTML = "";
+
+  const fragment = document.createDocumentFragment();
+  emojiCatalog
+    .filter((item) => {
+      if (!query) return true;
+      return (
+        item.symbol.includes(query) ||
+        item.keywords.some((keyword) => keyword.includes(query))
+      );
+    })
+    .forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "emoji-item";
+      button.textContent = item.symbol;
+      button.addEventListener("click", () => {
+        insertEmoji(item.symbol);
+      });
+      fragment.appendChild(button);
+    });
+
+  emojiGrid.appendChild(fragment);
+}
+
+function renderStickerGrid() {
+  if (!stickerGrid) return;
+  stickerGrid.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+
+  stickerData.forEach((sticker) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sticker-item";
+    button.setAttribute("aria-label", sticker.label);
+    const img = document.createElement("img");
+    img.src = sticker.uri;
+    img.alt = sticker.label;
+    button.appendChild(img);
+    button.addEventListener("click", () => {
+      sendSticker(sticker.id);
+    });
+    fragment.appendChild(button);
+  });
+
+  stickerGrid.appendChild(fragment);
+}
+
+function insertEmoji(emoji) {
+  if (!messageInput) return;
+  messageInput.focus();
+  const start = messageInput.selectionStart || 0;
+  const end = messageInput.selectionEnd || 0;
+  const value = messageInput.value || "";
+  messageInput.value = value.slice(0, start) + emoji + value.slice(end);
+  const cursor = start + emoji.length;
+  messageInput.setSelectionRange(cursor, cursor);
+  autoSizeTextarea();
+}
+
+function sendSticker(id) {
+  if (!messageForm || !messageInput) return;
+  messageInput.value = `[[sticker:${id}]]`;
+  messageForm.requestSubmit();
+}
+
+function showEmojiPanel() {
+  if (!emojiPanel) return;
+  emojiPanel.classList.remove("hidden");
+  if (emojiSearch) {
+    emojiSearch.value = "";
+  }
+  renderEmojiGrid("");
+  renderStickerGrid();
+}
+
+function hideEmojiPanel() {
+  if (!emojiPanel) return;
+  emojiPanel.classList.add("hidden");
+}
+
+function setEmojiTab(tab) {
+  if (!emojiPanel) return;
+  const tabs = emojiPanel.querySelectorAll(".emoji-tab");
+  tabs.forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tab);
+  });
+  if (emojiGrid) emojiGrid.classList.toggle("hidden", tab !== "emoji");
+  if (stickerGrid) stickerGrid.classList.toggle("hidden", tab !== "stickers");
+  if (emojiSearch) {
+    emojiSearch.parentElement?.classList.toggle("hidden", tab !== "emoji");
+  }
+}
+
 function openLightbox(src, alt) {
   if (!lightbox || !lightboxImage || !src) return;
   lightboxImage.src = src;
@@ -314,8 +522,12 @@ if (lightbox) {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && lightbox && !lightbox.classList.contains("hidden")) {
+  if (event.key !== "Escape") return;
+  if (lightbox && !lightbox.classList.contains("hidden")) {
     closeLightbox();
+  }
+  if (emojiPanel && !emojiPanel.classList.contains("hidden")) {
+    hideEmojiPanel();
   }
 });
 
@@ -366,6 +578,40 @@ if (attachButton && attachmentInput) {
     renderAttachmentPreview(Array.from(attachmentInput.files || []));
   });
 }
+
+if (emojiButton && emojiPanel) {
+  emojiButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (emojiPanel.classList.contains("hidden")) {
+      showEmojiPanel();
+    } else {
+      hideEmojiPanel();
+    }
+  });
+}
+
+if (emojiSearch) {
+  emojiSearch.addEventListener("input", () => {
+    renderEmojiGrid(emojiSearch.value);
+  });
+}
+
+if (emojiPanel) {
+  const tabs = emojiPanel.querySelectorAll(".emoji-tab");
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      setEmojiTab(tab.dataset.tab);
+    });
+  });
+}
+
+document.addEventListener("click", (event) => {
+  if (!emojiPanel || emojiPanel.classList.contains("hidden")) return;
+  if (emojiPanel.contains(event.target) || emojiButton?.contains(event.target)) {
+    return;
+  }
+  hideEmojiPanel();
+});
 
 // --- звук уведомлений ---
 function playNotification() {
@@ -495,6 +741,13 @@ function escapeHtml(str) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function getStickerPayload(text) {
+  const trimmed = String(text || "").trim();
+  const match = trimmed.match(/^\[\[sticker:([a-z0-9_-]+)\]\]$/i);
+  if (!match) return null;
+  return stickerMap.get(match[1]) || null;
 }
 
 function renderMessage({
@@ -630,13 +883,24 @@ function renderMessage({
     `
       : "";
 
+  const sticker = getStickerPayload(text);
+  if (sticker) {
+    li.classList.add("sticker");
+  }
+
   li.innerHTML = `
     <div class="meta">
       <span class="author">${escapeHtml(login)}</span>
       <span class="time">${timeStr}</span>
     </div>
     ${replyHtml}
-    <div class="text">${linkify(text)}</div>
+    <div class="text">${
+      sticker
+        ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
+            sticker.label
+          )}" /></div>`
+        : linkify(text)
+    }</div>
     ${attachmentsHtml}
   `;
 
