@@ -98,6 +98,11 @@ const loginForm = document.getElementById("login-form");
 const loginInput = document.getElementById("login");
 const colorInput = document.getElementById("color-input");
 const avatarOptionsEl = document.getElementById("avatar-options");
+const avatarToggle = document.getElementById("avatar-toggle");
+const avatarUploadInput = document.getElementById("avatar-upload");
+const avatarUploadPreview = document.getElementById("avatar-upload-preview");
+const avatarUploadPreviewWrap = document.querySelector(".avatar-upload-preview");
+const avatarUploadClear = document.getElementById("avatar-upload-clear");
 const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
 const messagesList = document.getElementById("messages");
@@ -134,7 +139,9 @@ const ENABLE_TEST_BOTS = true;
 let currentLogin = null;
 let currentColor = null;
 let currentAvatarId = null;
+let currentAvatar = null;
 let selectedAvatarId = avatarCatalog[0]?.id || null;
+let customAvatarDataUrl = null;
 let isMuted = false;
 let audioCtx = null;
 
@@ -176,6 +183,11 @@ function renderAvatarOptions() {
 
     button.addEventListener("click", () => {
       selectedAvatarId = option.id;
+      customAvatarDataUrl = null;
+      currentAvatar = null;
+      if (avatarUploadPreviewWrap) {
+        avatarUploadPreviewWrap.classList.add("hidden");
+      }
       avatarOptionsEl
         .querySelectorAll(".avatar-option")
         .forEach((el) => el.classList.toggle("is-selected", el === button));
@@ -183,6 +195,37 @@ function renderAvatarOptions() {
 
     avatarOptionsEl.appendChild(button);
   });
+}
+
+function clearCustomAvatar() {
+  customAvatarDataUrl = null;
+  currentAvatar = null;
+  if (avatarUploadInput) {
+    avatarUploadInput.value = "";
+  }
+  if (avatarUploadPreviewWrap) {
+    avatarUploadPreviewWrap.classList.add("hidden");
+  }
+  if (avatarUploadPreview) {
+    avatarUploadPreview.src = "";
+  }
+}
+
+function showCustomAvatar(dataUrl) {
+  customAvatarDataUrl = dataUrl;
+  currentAvatar = dataUrl;
+  if (avatarUploadPreview) {
+    avatarUploadPreview.src = dataUrl;
+  }
+  if (avatarUploadPreviewWrap) {
+    avatarUploadPreviewWrap.classList.remove("hidden");
+  }
+  if (avatarOptionsEl) {
+    avatarOptionsEl
+      .querySelectorAll(".avatar-option")
+      .forEach((el) => el.classList.remove("is-selected"));
+  }
+  selectedAvatarId = null;
 }
 
 function showReplyPreview() {
@@ -209,6 +252,37 @@ if (replyCancelBtn) {
 }
 
 renderAvatarOptions();
+
+if (avatarToggle && avatarOptionsEl) {
+  avatarToggle.addEventListener("click", () => {
+    avatarOptionsEl.classList.toggle("hidden");
+  });
+}
+
+if (avatarUploadInput) {
+  avatarUploadInput.addEventListener("change", () => {
+    const file = avatarUploadInput.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Выберите изображение для аватара.");
+      avatarUploadInput.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        showCustomAvatar(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+if (avatarUploadClear) {
+  avatarUploadClear.addEventListener("click", () => {
+    clearCustomAvatar();
+  });
+}
 
 function autoSizeTextarea() {
   if (!messageInput) return;
@@ -1067,11 +1141,13 @@ loginForm.addEventListener("submit", (e) => {
   currentLogin = value;
   currentColor = (colorInput && colorInput.value) || "#38bdf8";
   currentAvatarId = selectedAvatarId || avatarCatalog[0]?.id || null;
+  currentAvatar = customAvatarDataUrl || null;
 
   socket.emit("join", {
     login: value,
     color: currentColor,
     avatarId: currentAvatarId,
+    avatar: currentAvatar,
   });
 
   if (botsEnabled) {
@@ -1123,6 +1199,7 @@ messageForm.addEventListener("submit", async (e) => {
     login: currentLogin || "Я",
     color: currentColor || "#38bdf8",
     avatarId: currentAvatarId,
+    avatar: currentAvatar,
     text,
     timestamp: ts,
     local: true,
