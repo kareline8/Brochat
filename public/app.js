@@ -149,6 +149,7 @@ let lastUserList = [];
 let replyTarget = null; // { login, text } или null
 let isUploading = false;
 let attachmentPreviewUrls = [];
+let isChatActive = false;
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
