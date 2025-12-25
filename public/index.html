@@ -57,6 +57,24 @@
 </form>
 
       </div>
+      <div id="avatar-crop-modal" class="avatar-crop-modal hidden" role="dialog" aria-modal="true">
+        <div class="avatar-crop-card">
+          <h3>Настройка аватара</h3>
+          <p>Перетяни изображение, чтобы выбрать область.</p>
+          <div id="avatar-crop-area" class="avatar-crop-area">
+            <img id="avatar-crop-image" alt="Обрезка аватара" />
+            <div id="avatar-crop-handle" class="avatar-crop-handle" aria-hidden="true"></div>
+          </div>
+          <label class="avatar-crop-zoom">
+            Масштаб
+            <input id="avatar-crop-zoom" type="range" min="100" max="220" value="100" />
+          </label>
+          <div class="avatar-crop-actions">
+            <button type="button" id="avatar-crop-cancel" class="avatar-crop-cancel">Отмена</button>
+            <button type="button" id="avatar-crop-apply" class="avatar-crop-apply">Сохранить</button>
+          </div>
+        </div>
+      </div>
 
       <div id="chat-screen" class="panel chat-panel hidden">
         <aside class="sidebar">
@@ -135,6 +153,7 @@
 </div>
 
           <ul id="messages" class="messages"></ul>
+          <button id="unread-indicator" class="unread-indicator hidden" type="button"></button>
 
           <!-- превью ответа (reply), как в телеграм -->
           <div id="reply-preview" class="reply-preview hidden">
