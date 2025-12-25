@@ -65,6 +65,14 @@ const attachmentPreview = document.getElementById("attachment-preview");
 const lightbox = document.getElementById("media-lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
 const lightboxClose = lightbox ? lightbox.querySelector(".lightbox-close") : null;
+const audioPlayer = document.getElementById("audio-player");
+const audioElement = document.getElementById("audio-element");
+const audioPlayButton = document.getElementById("audio-play");
+const audioTitle = document.getElementById("audio-title");
+const audioCurrent = document.getElementById("audio-current");
+const audioDuration = document.getElementById("audio-duration");
+const audioProgress = document.getElementById("audio-progress");
+const audioClose = document.getElementById("audio-close");
 
 // общий флаг: есть ли вообще тестовые боты в этой сборке
 const ENABLE_TEST_BOTS = true;
@@ -128,6 +136,93 @@ function formatBytes(bytes) {
     unitIndex += 1;
   }
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatTime(totalSeconds) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return "0:00";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function showAudioPlayer(track) {
+  if (!audioPlayer || !audioElement || !track?.url) return;
+  audioElement.src = track.url;
+  if (audioTitle) {
+    audioTitle.textContent = track.name || "Аудио";
+  }
+  if (audioCurrent) audioCurrent.textContent = "0:00";
+  if (audioDuration) audioDuration.textContent = "0:00";
+  if (audioProgress) audioProgress.value = "0";
+  audioPlayer.classList.remove("hidden");
+  audioElement
+    .play()
+    .then(() => {
+      if (audioPlayButton) audioPlayButton.textContent = "⏸";
+    })
+    .catch(() => {
+      if (audioPlayButton) audioPlayButton.textContent = "▶️";
+    });
+}
+
+function stopAudioPlayer() {
+  if (!audioPlayer || !audioElement) return;
+  audioElement.pause();
+  audioElement.removeAttribute("src");
+  audioElement.load();
+  if (audioPlayButton) audioPlayButton.textContent = "▶️";
+  if (audioProgress) audioProgress.value = "0";
+  if (audioCurrent) audioCurrent.textContent = "0:00";
+  if (audioDuration) audioDuration.textContent = "0:00";
+  audioPlayer.classList.add("hidden");
+}
+
+if (audioPlayButton && audioElement) {
+  audioPlayButton.addEventListener("click", () => {
+    if (audioElement.paused) {
+      audioElement.play().catch(() => {});
+      audioPlayButton.textContent = "⏸";
+    } else {
+      audioElement.pause();
+      audioPlayButton.textContent = "▶️";
+    }
+  });
+}
+
+if (audioClose) {
+  audioClose.addEventListener("click", () => {
+    stopAudioPlayer();
+  });
+}
+
+if (audioElement) {
+  audioElement.addEventListener("loadedmetadata", () => {
+    if (audioDuration) {
+      audioDuration.textContent = formatTime(audioElement.duration);
+    }
+    if (audioProgress && Number.isFinite(audioElement.duration)) {
+      audioProgress.max = String(Math.floor(audioElement.duration));
+    }
+  });
+
+  audioElement.addEventListener("timeupdate", () => {
+    if (audioCurrent) {
+      audioCurrent.textContent = formatTime(audioElement.currentTime);
+    }
+    if (audioProgress && !audioProgress.matches(":active")) {
+      audioProgress.value = String(Math.floor(audioElement.currentTime));
+    }
+  });
+
+  audioElement.addEventListener("ended", () => {
+    if (audioPlayButton) audioPlayButton.textContent = "▶️";
+  });
+}
+
+if (audioProgress && audioElement) {
+  audioProgress.addEventListener("input", () => {
+    audioElement.currentTime = Number(audioProgress.value);
+  });
 }
 
 function updateAttachmentCount() {
@@ -446,11 +541,21 @@ function renderMessage({
     return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
   };
 
+  const isAudioAttachment = (item) => {
+    if (!item) return false;
+    if (item.type && String(item.type).startsWith("audio/")) return true;
+    const name = String(item.name || "");
+    return /\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(name);
+  };
+
   const imageAttachments = safeAttachments.filter(isImageAttachment);
-  const fileAttachments = safeAttachments.filter((item) => !isImageAttachment(item));
+  const audioAttachments = safeAttachments.filter(isAudioAttachment);
+  const fileAttachments = safeAttachments.filter(
+    (item) => !isImageAttachment(item) && !isAudioAttachment(item)
+  );
 
   const attachmentsHtml =
-    imageAttachments.length || fileAttachments.length
+    imageAttachments.length || fileAttachments.length || audioAttachments.length
       ? `
       <div class="attachments">
         ${
@@ -494,6 +599,33 @@ function renderMessage({
           `
             : ""
         }
+        ${
+          audioAttachments.length
+            ? `
+            <div class="attachment-audio">
+              ${audioAttachments
+                .map((item) => {
+                  const name = escapeHtml(item.name || "аудио");
+                  const url = escapeHtml(item.url || "#");
+                  const sizeLabel = item.size ? formatBytes(item.size) : "";
+                  return `
+                    <button
+                      type="button"
+                      class="audio-attachment"
+                      data-url="${url}"
+                      data-name="${name}"
+                    >
+                      <span>🎵</span>
+                      <span>${name}${sizeLabel ? ` (${sizeLabel})` : ""}</span>
+                      <span>▶️</span>
+                    </button>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+            : ""
+        }
       </div>
     `
       : "";
@@ -514,6 +646,17 @@ function renderMessage({
       const src = img.getAttribute("data-full") || img.getAttribute("src");
       if (src && src !== "#") {
         openLightbox(src, img.getAttribute("alt") || "");
+      }
+    });
+  });
+
+  li.querySelectorAll(".audio-attachment").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const url = button.getAttribute("data-url");
+      const name = button.getAttribute("data-name");
+      if (url && url !== "#") {
+        showAudioPlayer({ url, name });
       }
     });
   });
