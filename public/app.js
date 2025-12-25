@@ -101,6 +101,13 @@ const avatarOptionsEl = document.getElementById("avatar-options");
 const avatarUploadInput = document.getElementById("avatar-upload");
 const avatarUploadPreview = document.getElementById("avatar-upload-preview");
 const avatarUploadClear = document.getElementById("avatar-upload-clear");
+const avatarCropModal = document.getElementById("avatar-crop-modal");
+const avatarCropArea = document.getElementById("avatar-crop-area");
+const avatarCropImage = document.getElementById("avatar-crop-image");
+const avatarCropHandle = document.getElementById("avatar-crop-handle");
+const avatarCropZoom = document.getElementById("avatar-crop-zoom");
+const avatarCropCancel = document.getElementById("avatar-crop-cancel");
+const avatarCropApply = document.getElementById("avatar-crop-apply");
 const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
 const messagesList = document.getElementById("messages");
@@ -119,6 +126,7 @@ const stickerGrid = document.getElementById("sticker-grid");
 const attachmentInput = document.getElementById("attachment-input");
 const attachmentCount = document.getElementById("attachment-count");
 const attachmentPreview = document.getElementById("attachment-preview");
+const unreadIndicator = document.getElementById("unread-indicator");
 const lightbox = document.getElementById("media-lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
 const lightboxClose = lightbox ? lightbox.querySelector(".lightbox-close") : null;
@@ -150,6 +158,8 @@ let replyTarget = null; // { login, text } или null
 let isUploading = false;
 let attachmentPreviewUrls = [];
 let isChatActive = false;
+let unreadMessages = [];
+let firstUnreadMessage = null;
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -183,11 +193,7 @@ function renderAvatarOptions() {
     button.addEventListener("click", () => {
       clearCustomAvatar();
       selectedAvatarId = option.id;
-      customAvatarDataUrl = null;
       currentAvatar = null;
-      if (avatarUploadPreviewWrap) {
-        avatarUploadPreviewWrap.classList.add("hidden");
-      }
       avatarOptionsEl
         .querySelectorAll(".avatar-option")
         .forEach((el) => el.classList.toggle("is-selected", el === button));
@@ -197,36 +203,12 @@ function renderAvatarOptions() {
   });
 }
 
-function clearCustomAvatar() {
-  customAvatarDataUrl = null;
-  currentAvatar = null;
-  if (avatarUploadInput) {
-    avatarUploadInput.value = "";
-  }
-  if (avatarUploadPreviewWrap) {
-    avatarUploadPreviewWrap.classList.add("hidden");
-  }
-  if (avatarUploadPreview) {
-    avatarUploadPreview.src = "";
-  }
-}
-
-function showCustomAvatar(dataUrl) {
-  customAvatarDataUrl = dataUrl;
-  currentAvatar = dataUrl;
-  if (avatarUploadPreview) {
-    avatarUploadPreview.src = dataUrl;
-  }
-  if (avatarUploadPreviewWrap) {
-    avatarUploadPreviewWrap.classList.remove("hidden");
-  }
-  if (avatarOptionsEl) {
-    avatarOptionsEl
-      .querySelectorAll(".avatar-option")
-      .forEach((el) => el.classList.remove("is-selected"));
-  }
-  selectedAvatarId = null;
-}
+let cropSourceImage = null;
+let cropScale = 1;
+let cropMinScale = 1;
+let cropOffsetX = 0;
+let cropOffsetY = 0;
+let cropDragState = null;
 
 function showReplyPreview() {
   if (!replyPreview || !replyAuthorEl || !replyTextEl || !replyTarget) return;
@@ -272,8 +254,107 @@ function updateCustomAvatarPreview(avatarUrl) {
   selectedAvatarId = null;
 }
 
+function closeAvatarCropper() {
+  if (avatarCropModal) {
+    avatarCropModal.classList.add("hidden");
+  }
+  if (avatarCropImage) {
+    avatarCropImage.src = "";
+  }
+  cropSourceImage = null;
+  cropDragState = null;
+}
+
+function updateCropTransform() {
+  if (!avatarCropImage) return;
+  avatarCropImage.style.transform = `translate(${cropOffsetX}px, ${cropOffsetY}px) scale(${cropScale})`;
+}
+
+function clampCropOffsets() {
+  if (!avatarCropArea || !cropSourceImage) return;
+  const bounds = avatarCropArea.getBoundingClientRect();
+  const areaSize = bounds.width;
+  const scaledWidth = cropSourceImage.naturalWidth * cropScale;
+  const scaledHeight = cropSourceImage.naturalHeight * cropScale;
+
+  const minX = areaSize - scaledWidth;
+  const minY = areaSize - scaledHeight;
+
+  cropOffsetX = Math.min(0, Math.max(minX, cropOffsetX));
+  cropOffsetY = Math.min(0, Math.max(minY, cropOffsetY));
+}
+
+function initCropper() {
+  if (!avatarCropArea || !cropSourceImage) return;
+  const bounds = avatarCropArea.getBoundingClientRect();
+  const areaSize = bounds.width;
+  const minScaleX = areaSize / cropSourceImage.naturalWidth;
+  const minScaleY = areaSize / cropSourceImage.naturalHeight;
+  cropMinScale = Math.max(minScaleX, minScaleY);
+  cropScale = cropMinScale;
+  cropOffsetX = (areaSize - cropSourceImage.naturalWidth * cropScale) / 2;
+  cropOffsetY = (areaSize - cropSourceImage.naturalHeight * cropScale) / 2;
+  clampCropOffsets();
+  updateCropTransform();
+  if (avatarCropZoom) {
+    avatarCropZoom.min = String(Math.round(cropMinScale * 100));
+    avatarCropZoom.max = String(Math.round(cropMinScale * 220));
+    avatarCropZoom.value = String(Math.round(cropScale * 100));
+  }
+}
+
+function openAvatarCropper(dataUrl) {
+  if (!avatarCropModal || !avatarCropImage) {
+    updateCustomAvatarPreview(dataUrl);
+    return;
+  }
+  cropSourceImage = new Image();
+  cropSourceImage.onload = () => {
+    avatarCropImage.src = dataUrl;
+    avatarCropModal.classList.remove("hidden");
+    requestAnimationFrame(() => {
+      initCropper();
+    });
+  };
+  cropSourceImage.src = dataUrl;
+}
+
+function applyAvatarCrop() {
+  if (!avatarCropArea || !cropSourceImage) return;
+  const bounds = avatarCropArea.getBoundingClientRect();
+  const areaSize = bounds.width;
+  const outputSize = 200;
+
+  const sourceX = -cropOffsetX / cropScale;
+  const sourceY = -cropOffsetY / cropScale;
+  const sourceSize = areaSize / cropScale;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = outputSize;
+  canvas.height = outputSize;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.drawImage(
+    cropSourceImage,
+    sourceX,
+    sourceY,
+    sourceSize,
+    sourceSize,
+    0,
+    0,
+    outputSize,
+    outputSize
+  );
+
+  const dataUrl = canvas.toDataURL("image/png");
+  updateCustomAvatarPreview(dataUrl);
+  closeAvatarCropper();
+}
+
 function clearCustomAvatar() {
   customAvatar = null;
+  closeAvatarCropper();
   if (avatarUploadPreview) {
     avatarUploadPreview.src = "";
     avatarUploadPreview.classList.add("hidden");
@@ -319,10 +400,89 @@ if (avatarUploadInput) {
     reader.onload = () => {
       const result = reader.result;
       if (typeof result === "string") {
-        updateCustomAvatarPreview(result);
+        openAvatarCropper(result);
       }
     };
     reader.readAsDataURL(file);
+  });
+}
+
+function startCropDrag(event, type) {
+  if (!avatarCropArea) return;
+  event.preventDefault();
+  cropDragState = {
+    type,
+    startX: event.clientX,
+    startY: event.clientY,
+    startOffsetX: cropOffsetX,
+    startOffsetY: cropOffsetY,
+    startScale: cropScale,
+  };
+  document.addEventListener("pointermove", handleCropMove);
+  document.addEventListener("pointerup", endCropDrag);
+}
+
+function handleCropMove(event) {
+  if (!cropDragState || !avatarCropArea) return;
+  const deltaX = event.clientX - cropDragState.startX;
+  const deltaY = event.clientY - cropDragState.startY;
+
+  if (cropDragState.type === "move") {
+    cropOffsetX = cropDragState.startOffsetX + deltaX;
+    cropOffsetY = cropDragState.startOffsetY + deltaY;
+  } else if (cropDragState.type === "scale") {
+    const scaleDelta = (deltaX + deltaY) / 250;
+    cropScale = Math.max(cropMinScale, cropDragState.startScale + scaleDelta);
+    if (avatarCropZoom) {
+      avatarCropZoom.value = String(Math.round(cropScale * 100));
+    }
+  }
+
+  clampCropOffsets();
+  updateCropTransform();
+}
+
+function endCropDrag(event) {
+  if (!cropDragState || !avatarCropArea) return;
+  document.removeEventListener("pointermove", handleCropMove);
+  document.removeEventListener("pointerup", endCropDrag);
+  cropDragState = null;
+}
+
+if (avatarCropImage) {
+  avatarCropImage.addEventListener("pointerdown", (event) => {
+    startCropDrag(event, "move");
+  });
+}
+
+if (avatarCropHandle) {
+  avatarCropHandle.addEventListener("pointerdown", (event) => {
+    startCropDrag(event, "scale");
+  });
+}
+
+if (avatarCropZoom) {
+  avatarCropZoom.addEventListener("input", () => {
+    const value = Number(avatarCropZoom.value) / 100;
+    if (!Number.isFinite(value)) return;
+    cropScale = Math.max(cropMinScale, value);
+    clampCropOffsets();
+    updateCropTransform();
+  });
+}
+
+if (avatarCropCancel) {
+  avatarCropCancel.addEventListener("click", () => {
+    closeAvatarCropper();
+    if (avatarUploadInput) {
+      avatarUploadInput.value = "";
+    }
+  });
+}
+
+if (avatarCropApply) {
+  avatarCropApply.addEventListener("click", () => {
+    applyAvatarCrop();
   });
 }
 
@@ -770,6 +930,27 @@ if (messageInput) {
   });
 }
 
+if (messagesList) {
+  messagesList.addEventListener("scroll", () => {
+    if (isMessagesNearBottom()) {
+      clearUnreadMessages();
+      return;
+    }
+    updateUnreadOnScroll();
+  });
+}
+
+if (unreadIndicator) {
+  unreadIndicator.addEventListener("click", () => {
+    if (firstUnreadMessage) {
+      firstUnreadMessage.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(updateUnreadOnScroll, 200);
+    } else {
+      scrollMessagesToBottom();
+    }
+  });
+}
+
 if (attachButton && attachmentInput) {
   attachButton.addEventListener("click", () => {
     attachmentInput.click();
@@ -950,6 +1131,84 @@ function getStickerPayload(text) {
   const match = trimmed.match(/^\[\[sticker:([a-z0-9_-]+)\]\]$/i);
   if (!match) return null;
   return stickerMap.get(match[1]) || null;
+}
+
+const SCROLL_THRESHOLD = 40;
+
+function isMessagesNearBottom() {
+  if (!messagesList) return true;
+  const distance =
+    messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight;
+  return distance <= SCROLL_THRESHOLD;
+}
+
+function scrollMessagesToBottom() {
+  if (!messagesList) return;
+  messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+function updateUnreadIndicator() {
+  if (!unreadIndicator) return;
+  if (unreadMessages.length === 0) {
+    unreadIndicator.classList.add("hidden");
+    unreadIndicator.textContent = "";
+    return;
+  }
+  unreadIndicator.textContent = `Новые сообщения: ${unreadMessages.length}`;
+  unreadIndicator.classList.remove("hidden");
+}
+
+function registerUnreadMessage(messageEl) {
+  if (!messageEl) return;
+  messageEl.classList.add("is-unread");
+  unreadMessages.push(messageEl);
+  firstUnreadMessage = unreadMessages[0] || null;
+  updateUnreadIndicator();
+}
+
+function clearUnreadMessages() {
+  unreadMessages.forEach((messageEl) => {
+    messageEl.classList.remove("is-unread");
+  });
+  unreadMessages = [];
+  firstUnreadMessage = null;
+  updateUnreadIndicator();
+}
+
+function updateUnreadOnScroll() {
+  if (!messagesList || unreadMessages.length === 0) return;
+  const containerRect = messagesList.getBoundingClientRect();
+  const remaining = [];
+  unreadMessages.forEach((messageEl) => {
+    if (!messageEl.isConnected) return;
+    const messageRect = messageEl.getBoundingClientRect();
+    const isVisible = messageRect.top < containerRect.bottom - 12;
+    if (isVisible) {
+      messageEl.classList.remove("is-unread");
+      return;
+    }
+    remaining.push(messageEl);
+  });
+  unreadMessages = remaining;
+  firstUnreadMessage = unreadMessages[0] || null;
+  if (unreadMessages.length === 0 && isMessagesNearBottom()) {
+    clearUnreadMessages();
+  } else {
+    updateUnreadIndicator();
+  }
+}
+
+function appendMessageElement(messageEl, { countUnread }) {
+  if (!messagesList || !messageEl) return;
+  const wasNearBottom = isMessagesNearBottom();
+  messagesList.appendChild(messageEl);
+
+  if (wasNearBottom) {
+    scrollMessagesToBottom();
+    clearUnreadMessages();
+  } else if (countUnread) {
+    registerUnreadMessage(messageEl);
+  }
 }
 
 function renderMessage({
@@ -1155,18 +1414,18 @@ function renderMessage({
   }
 
   // клик по сообщению — выбрать его как цель для ответа
-  li.addEventListener("click", () => {
-    // replyTarget и showReplyPreview должны быть объявлены глобально,
-    // как мы выше делали
-    replyTarget = {
-      login,
-      text: String(text || ""),
-    };
-    showReplyPreview();
-  });
+  if (bubbleEl) {
+    bubbleEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      replyTarget = {
+        login,
+        text: String(text || ""),
+      };
+      showReplyPreview();
+    });
+  }
 
-  messagesList.appendChild(li);
-  messagesList.scrollTop = messagesList.scrollHeight;
+  appendMessageElement(li, { countUnread: !local && !silent });
 
   if (!silent && !local && login !== currentLogin) {
     playNotification();
@@ -1402,9 +1661,7 @@ socket.on("systemMessage", (payload) => {
   } else {
     li.textContent = text;
   }
-
-  messagesList.appendChild(li);
-  messagesList.scrollTop = messagesList.scrollHeight;
+  appendMessageElement(li, { countUnread: false });
 });
 
 socket.on("userList", (users) => {
