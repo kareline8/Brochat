@@ -303,6 +303,84 @@ body {
   background: linear-gradient(to right, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.9));
 }
 
+.audio-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.audio-player.hidden {
+  display: none;
+}
+
+.audio-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #38bdf8, #a855f7);
+  color: #0f172a;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.65);
+}
+
+.audio-toggle:hover {
+  filter: brightness(1.05);
+}
+
+.audio-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.audio-title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-meta {
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-progress {
+  width: 120px;
+}
+
+.audio-time {
+  font-size: 11px;
+  color: var(--text-soft);
+  min-width: 72px;
+  text-align: right;
+}
+
+.audio-close {
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.audio-close:hover {
+  color: var(--accent);
+}
+
 .chat-header-right {
   display: flex;
   align-items: center;
@@ -460,6 +538,47 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.message .attachment-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.audio-attachment {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.8);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.audio-attachment:hover {
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.6);
+}
+
+.audio-attachment .audio-icon {
+  font-size: 14px;
+}
+
+.audio-attachment .audio-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.audio-attachment .audio-size {
+  color: var(--text-soft);
 }
 
 .attachment-files {
