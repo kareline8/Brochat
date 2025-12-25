@@ -101,6 +101,11 @@ function getAvatarForName(login) {
   return AVATAR_CATALOG[index].uri;
 }
 
+function truncateText(text, limit) {
+  const chars = Array.from(String(text ?? ""));
+  return chars.slice(0, limit).join("");
+}
+
 function sanitizeAvatar(avatar) {
   if (!avatar || typeof avatar !== "string") return null;
   if (!avatar.startsWith("data:image/")) return null;
@@ -418,7 +423,7 @@ io.on("connection", (socket) => {
     if (data.replyTo && typeof data.replyTo === "object") {
       replyTo = {
         login: String(data.replyTo.login || "").slice(0, 20),
-        text: String(data.replyTo.text || "").slice(0, 300),
+        text: truncateText(data.replyTo.text || "", 300),
       };
     }
   } else {
