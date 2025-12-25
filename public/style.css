@@ -137,6 +137,57 @@ body {
   gap: 10px;
 }
 
+.avatar-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.avatar-upload-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px dashed rgba(148, 163, 184, 0.6);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-soft);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.avatar-upload-label input[type="file"] {
+  display: none;
+}
+
+.avatar-upload-label:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.avatar-upload-preview {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  box-shadow: 0 0 12px rgba(15, 23, 42, 0.65);
+}
+
+.avatar-upload-clear {
+  border: none;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.avatar-upload-clear:hover {
+  background: rgba(248, 113, 113, 0.2);
+}
+
 .avatar-option {
   border: 1px solid transparent;
   background: transparent;
@@ -231,6 +282,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
 
   background:
     radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 55%),
@@ -284,6 +337,8 @@ body {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-soft);
+  flex: 1;
+  overflow-y: auto;
 
   /* более яркий, контрастный фон под список ников */
   background:
@@ -492,7 +547,7 @@ body {
 
 .message {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 8px;
   width: 100%;
   font-size: var(--message-font-size);
@@ -505,14 +560,41 @@ body {
 
 .message-bubble {
   max-width: 70%;
-  border-radius: 16px;
+  border-radius: 18px 18px 18px 8px;
   padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.96);
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: var(--bubble-bg, rgba(15, 23, 42, 0.96));
+  border: 1px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
   display: flex;
   flex-direction: column;
   gap: 2px;
   position: relative;
+}
+
+.message-bubble::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--bubble-bg, rgba(15, 23, 42, 0.96));
+  border: 1px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
+  border-left: none;
+  border-top: none;
+  transform: rotate(45deg);
+  bottom: 6px;
+  left: -5px;
+}
+
+.message.me .message-bubble {
+  border-radius: 18px 18px 8px 18px;
+}
+
+.message.me .message-bubble::after {
+  left: auto;
+  right: -5px;
+  border-right: none;
+  border-bottom: none;
+  border-left: 1px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
+  border-top: 1px solid var(--bubble-border, rgba(148, 163, 184, 0.3));
 }
 
 .message .meta {

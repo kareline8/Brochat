@@ -5,6 +5,7 @@ const fs = require("fs");
 const { Server } = require("socket.io");
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+const MAX_AVATAR_BYTES = 800 * 1024;
 
 const app = express();
 const server = http.createServer(app);
@@ -97,6 +98,13 @@ function getAvatarForName(login) {
   }
   const index = Math.abs(hash) % AVATAR_CATALOG.length;
   return AVATAR_CATALOG[index].uri;
+}
+
+function sanitizeAvatar(avatar) {
+  if (!avatar || typeof avatar !== "string") return null;
+  if (!avatar.startsWith("data:image/")) return null;
+  if (Buffer.byteLength(avatar, "utf8") > MAX_AVATAR_BYTES) return null;
+  return avatar;
 }
 
 const BOT_MESSAGES = [
@@ -303,6 +311,7 @@ io.on("connection", (socket) => {
     let login = "";
     let color = null;
     let avatarId = null;
+    let avatar = null;
 
     if (typeof payload === "string") {
       login = payload;
@@ -314,13 +323,17 @@ io.on("connection", (socket) => {
       if (payload.avatarId) {
         avatarId = String(payload.avatarId);
       }
+      if (payload.avatar) {
+        avatar = sanitizeAvatar(payload.avatar);
+      }
     }
 
     let name = login.trim().slice(0, 20);
     if (!name) name = "Гость";
 
-    const avatar = getAvatarById(avatarId) || getAvatarForName(name);
-    const user = { login: name, color, avatarId, avatar };
+    const resolvedAvatar =
+      avatar || getAvatarById(avatarId) || getAvatarForName(name);
+    const user = { login: name, color, avatarId, avatar: resolvedAvatar };
     users.set(socket.id, user);
 
     // персональное приветствие

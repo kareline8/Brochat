@@ -24,6 +24,24 @@
   <div class="avatar-picker">
     <span>Аватар</span>
     <div id="avatar-options" class="avatar-options"></div>
+    <div class="avatar-upload">
+      <label class="avatar-upload-label">
+        <input id="avatar-upload" type="file" accept="image/*" />
+        <span>Загрузить свой</span>
+      </label>
+      <img
+        id="avatar-upload-preview"
+        class="avatar-upload-preview hidden"
+        alt="Загруженный аватар"
+      />
+      <button
+        type="button"
+        id="avatar-upload-clear"
+        class="avatar-upload-clear hidden"
+      >
+        Сбросить
+      </button>
+    </div>
   </div>
 
   <label class="color-picker">
