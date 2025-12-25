@@ -22,6 +22,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 const users = new Map(); // socket.id -> { login, color }
 const history = [];
 const MAX_HISTORY = 200;
+const messageReadState = new Map();
 
 const uploadsDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadsDir)) {
@@ -242,6 +243,34 @@ function toBuffer(data) {
   return null;
 }
 
+function generateMessageId() {
+  return `msg-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+}
+
+function markHistoryReadAll(messageId) {
+  const item = history.find((entry) => entry.messageId === messageId);
+  if (item) {
+    item.readAll = true;
+  }
+}
+
+function notifyReadAll(messageId) {
+  io.emit("messageReadAll", { messageId });
+  markHistoryReadAll(messageId);
+  messageReadState.delete(messageId);
+}
+
+function ensureReadState(messageId, senderLogin) {
+  if (messageReadState.has(messageId)) {
+    return messageReadState.get(messageId);
+  }
+  const state = {
+    expectedReaders: Math.max(1, users.size),
+    readers: new Set([senderLogin]),
+  };
+  messageReadState.set(messageId, state);
+  return state;
+}
 
 // --- обычная логика чата ---
 
@@ -360,17 +389,21 @@ io.on("connection", (socket) => {
     io.emit("userList", Array.from(users.values()));
   });
 
-socket.on("chatMessage", (data) => {
+  socket.on("chatMessage", (data) => {
   const user = users.get(socket.id) || { login: "Гость", color: null };
 
   let msgText = "";
   let replyTo = null;
   let attachments = [];
+  let messageId = "";
 
   if (typeof data === "string") {
     msgText = data;
   } else if (data && typeof data === "object") {
     msgText = data.text;
+    if (data.messageId) {
+      messageId = String(data.messageId);
+    }
     if (Array.isArray(data.attachments)) {
       attachments = data.attachments
         .filter((item) => item && typeof item === "object")
@@ -395,7 +428,12 @@ socket.on("chatMessage", (data) => {
   const msg = String(msgText || "").trim();
   if (!msg && attachments.length === 0) return;
 
+  if (!messageId) {
+    messageId = generateMessageId();
+  }
+
   const payload = {
+    messageId,
     login: user.login,
     color: user.color,
     avatarId: user.avatarId,
@@ -404,6 +442,7 @@ socket.on("chatMessage", (data) => {
     replyTo,
     attachments,
     timestamp: new Date().toISOString(),
+    readAll: false,
   };
 
   history.push(payload);
@@ -411,8 +450,29 @@ socket.on("chatMessage", (data) => {
     history.shift();
   }
 
+  const readState = ensureReadState(messageId, user.login);
+  const readAllNow = readState.readers.size >= readState.expectedReaders;
+  if (readAllNow) {
+    payload.readAll = true;
+  }
   io.emit("chatMessage", payload);
+  if (readAllNow) {
+    notifyReadAll(messageId);
+  }
 });
+
+  socket.on("messageRead", (payload) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    const messageId = String(payload?.messageId || "");
+    if (!messageId) return;
+    const state = messageReadState.get(messageId);
+    if (!state) return;
+    state.readers.add(user.login);
+    if (state.readers.size >= state.expectedReaders) {
+      notifyReadAll(messageId);
+    }
+  });
 
 
   socket.on("disconnect", () => {
@@ -426,6 +486,16 @@ socket.on("chatMessage", (data) => {
         text: `${user.login} вышел из чата`,
       });
       io.emit("userList", Array.from(users.values()));
+    }
+    if (messageReadState.size > 0) {
+      messageReadState.forEach((state, messageId) => {
+        if (state.expectedReaders > 1) {
+          state.expectedReaders = Math.max(1, state.expectedReaders - 1);
+        }
+        if (state.readers.size >= state.expectedReaders) {
+          notifyReadAll(messageId);
+        }
+      });
     }
     console.log("user disconnected:", socket.id);
   });
