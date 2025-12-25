@@ -51,6 +51,54 @@ const BOT_COLORS = [
   "#fb7185",
 ];
 
+const AVATAR_OPTIONS = [
+  { id: "cool", emoji: "😎", accent: "#38bdf8" },
+  { id: "spark", emoji: "⚡", accent: "#a855f7" },
+  { id: "heart", emoji: "❤️", accent: "#f97316" },
+  { id: "leaf", emoji: "🌿", accent: "#22c55e" },
+  { id: "sun", emoji: "🌞", accent: "#eab308" },
+  { id: "music", emoji: "🎧", accent: "#f472b6" },
+  { id: "bubble", emoji: "🫧", accent: "#2dd4bf" },
+  { id: "star", emoji: "⭐", accent: "#fb7185" },
+];
+
+function buildAvatarDataUri({ emoji, accent }) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <defs>
+        <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${accent}"/>
+          <stop offset="100%" stop-color="#0f172a"/>
+        </linearGradient>
+      </defs>
+      <circle cx="50" cy="50" r="50" fill="url(#grad)"/>
+      <text x="50" y="58" font-size="46" text-anchor="middle" dominant-baseline="middle"
+        font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">${emoji}</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+const AVATAR_CATALOG = AVATAR_OPTIONS.map((option) => ({
+  ...option,
+  uri: buildAvatarDataUri(option),
+}));
+const AVATAR_MAP = new Map(AVATAR_CATALOG.map((option) => [option.id, option.uri]));
+
+function getAvatarById(id) {
+  return (id && AVATAR_MAP.get(id)) || null;
+}
+
+function getAvatarForName(login) {
+  const name = (login || "guest").toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  const index = Math.abs(hash) % AVATAR_CATALOG.length;
+  return AVATAR_CATALOG[index].uri;
+}
+
 const BOT_MESSAGES = [
   // 1 строка
   "Короткий тест без переноса.",
@@ -101,6 +149,9 @@ function startTestBots() {
 
   BOT_NAMES.forEach((login, index) => {
     const color = BOT_COLORS[index % BOT_COLORS.length];
+    const avatarOption = AVATAR_CATALOG[index % AVATAR_CATALOG.length];
+    const avatarId = avatarOption?.id || null;
+    const avatar = avatarOption?.uri || getAvatarForName(login);
 
     const loop = () => {
       const delay = randomInt(3000, 60000); // 3–60 секунд
@@ -111,6 +162,8 @@ function startTestBots() {
         const payload = {
           login,
           color,
+          avatarId,
+          avatar,
           text,
           isBot: true,
           timestamp: new Date().toISOString(),
@@ -249,6 +302,7 @@ io.on("connection", (socket) => {
   socket.on("join", (payload) => {
     let login = "";
     let color = null;
+    let avatarId = null;
 
     if (typeof payload === "string") {
       login = payload;
@@ -257,12 +311,16 @@ io.on("connection", (socket) => {
       if (payload.color) {
         color = String(payload.color);
       }
+      if (payload.avatarId) {
+        avatarId = String(payload.avatarId);
+      }
     }
 
     let name = login.trim().slice(0, 20);
     if (!name) name = "Гость";
 
-    const user = { login: name, color };
+    const avatar = getAvatarById(avatarId) || getAvatarForName(name);
+    const user = { login: name, color, avatarId, avatar };
     users.set(socket.id, user);
 
     // персональное приветствие
@@ -327,6 +385,8 @@ socket.on("chatMessage", (data) => {
   const payload = {
     login: user.login,
     color: user.color,
+    avatarId: user.avatarId,
+    avatar: user.avatar,
     text: msg,
     replyTo,
     attachments,

@@ -11,6 +11,54 @@ const colorPalette = [
   "#fb7185"
 ];
 
+const avatarOptions = [
+  { id: "cool", emoji: "😎", accent: "#38bdf8" },
+  { id: "spark", emoji: "⚡", accent: "#a855f7" },
+  { id: "heart", emoji: "❤️", accent: "#f97316" },
+  { id: "leaf", emoji: "🌿", accent: "#22c55e" },
+  { id: "sun", emoji: "🌞", accent: "#eab308" },
+  { id: "music", emoji: "🎧", accent: "#f472b6" },
+  { id: "bubble", emoji: "🫧", accent: "#2dd4bf" },
+  { id: "star", emoji: "⭐", accent: "#fb7185" }
+];
+
+function buildAvatarDataUri({ emoji, accent }) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <defs>
+        <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${accent}"/>
+          <stop offset="100%" stop-color="#0f172a"/>
+        </linearGradient>
+      </defs>
+      <circle cx="50" cy="50" r="50" fill="url(#grad)"/>
+      <text x="50" y="58" font-size="46" text-anchor="middle" dominant-baseline="middle"
+        font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif">${emoji}</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+const avatarCatalog = avatarOptions.map((option) => ({
+  ...option,
+  uri: buildAvatarDataUri(option),
+}));
+const avatarMap = new Map(avatarCatalog.map((option) => [option.id, option.uri]));
+
+function getAvatarById(id) {
+  return (id && avatarMap.get(id)) || null;
+}
+
+function getAvatarForLogin(login) {
+  const name = (login || "guest").toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  const index = Math.abs(hash) % avatarCatalog.length;
+  return avatarCatalog[index].uri;
+}
+
 function getColorForLogin(login) {
   const name = (login || "guest").toLowerCase();
   if (userColors[name]) return userColors[name];
@@ -49,6 +97,7 @@ const chatScreen = document.getElementById("chat-screen");
 const loginForm = document.getElementById("login-form");
 const loginInput = document.getElementById("login");
 const colorInput = document.getElementById("color-input");
+const avatarOptionsEl = document.getElementById("avatar-options");
 const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
 const messagesList = document.getElementById("messages");
@@ -84,6 +133,8 @@ const ENABLE_TEST_BOTS = true;
 
 let currentLogin = null;
 let currentColor = null;
+let currentAvatarId = null;
+let selectedAvatarId = avatarCatalog[0]?.id || null;
 let isMuted = false;
 let audioCtx = null;
 
@@ -100,6 +151,39 @@ const FAKE_BOT_NAMES = [
   "Никита", "Света", "Костя", "Вика", "Рома",
   "Надя", "Антон", "Катя", "Женя", "Маша"
 ];
+
+function renderAvatarOptions() {
+  if (!avatarOptionsEl) return;
+  avatarOptionsEl.innerHTML = "";
+
+  avatarCatalog.forEach((option, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "avatar-option";
+    button.dataset.avatarId = option.id;
+
+    const img = document.createElement("img");
+    img.src = option.uri;
+    img.alt = option.id;
+    button.appendChild(img);
+
+    if (!selectedAvatarId && index === 0) {
+      selectedAvatarId = option.id;
+    }
+    if (option.id === selectedAvatarId) {
+      button.classList.add("is-selected");
+    }
+
+    button.addEventListener("click", () => {
+      selectedAvatarId = option.id;
+      avatarOptionsEl
+        .querySelectorAll(".avatar-option")
+        .forEach((el) => el.classList.toggle("is-selected", el === button));
+    });
+
+    avatarOptionsEl.appendChild(button);
+  });
+}
 
 function showReplyPreview() {
   if (!replyPreview || !replyAuthorEl || !replyTextEl || !replyTarget) return;
@@ -123,6 +207,8 @@ if (replyCancelBtn) {
     hideReplyPreview();
   });
 }
+
+renderAvatarOptions();
 
 function autoSizeTextarea() {
   if (!messageInput) return;
@@ -759,6 +845,8 @@ function renderMessage({
   silent,
   replyTo,
   attachments,
+  avatar,
+  avatarId,
 }) {
   const li = document.createElement("li");
   li.classList.add("message");
@@ -888,20 +976,25 @@ function renderMessage({
     li.classList.add("sticker");
   }
 
+  const avatarUrl = avatar || getAvatarById(avatarId) || getAvatarForLogin(login);
+
   li.innerHTML = `
-    <div class="meta">
-      <span class="author">${escapeHtml(login)}</span>
-      <span class="time">${timeStr}</span>
+    <img class="message-avatar" src="${avatarUrl}" alt="${escapeHtml(login)}" />
+    <div class="message-bubble">
+      <div class="meta">
+        <span class="author">${escapeHtml(login)}</span>
+        <span class="time">${timeStr}</span>
+      </div>
+      ${replyHtml}
+      <div class="text">${
+        sticker
+          ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
+              sticker.label
+            )}" /></div>`
+          : linkify(text)
+      }</div>
+      ${attachmentsHtml}
     </div>
-    ${replyHtml}
-    <div class="text">${
-      sticker
-        ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
-            sticker.label
-          )}" /></div>`
-        : linkify(text)
-    }</div>
-    ${attachmentsHtml}
   `;
 
   li.querySelectorAll(".attachment-image").forEach((img) => {
@@ -933,9 +1026,12 @@ function renderMessage({
       ? hexToRgba(baseColor, 0.35)   // свои — поярче
       : hexToRgba(baseColor, 0.10);  // чужие — лёгкая заливка
 
-  li.style.borderColor = border;
-  li.style.boxShadow = `0 0 12px ${glow}`;
-  li.style.background = bubbleBg;
+  const bubbleEl = li.querySelector(".message-bubble");
+  if (bubbleEl) {
+    bubbleEl.style.borderColor = border;
+    bubbleEl.style.boxShadow = `0 0 12px ${glow}`;
+    bubbleEl.style.background = bubbleBg;
+  }
 
   const authorEl = li.querySelector(".author");
   if (authorEl) {
@@ -970,8 +1066,13 @@ loginForm.addEventListener("submit", (e) => {
 
   currentLogin = value;
   currentColor = (colorInput && colorInput.value) || "#38bdf8";
+  currentAvatarId = selectedAvatarId || avatarCatalog[0]?.id || null;
 
-  socket.emit("join", { login: value, color: currentColor });
+  socket.emit("join", {
+    login: value,
+    color: currentColor,
+    avatarId: currentAvatarId,
+  });
 
   if (botsEnabled) {
     socket.emit("startBots");
@@ -1021,6 +1122,7 @@ messageForm.addEventListener("submit", async (e) => {
   const localPayload = {
     login: currentLogin || "Я",
     color: currentColor || "#38bdf8",
+    avatarId: currentAvatarId,
     text,
     timestamp: ts,
     local: true,
@@ -1098,6 +1200,8 @@ socket.on("history", (items) => {
       color: msg.color,
       text: msg.text,
       timestamp: msg.timestamp,
+      avatar: msg.avatar,
+      avatarId: msg.avatarId,
       attachments: msg.attachments || [],
       replyTo: msg.replyTo || null,
       local: false,
@@ -1108,7 +1212,17 @@ socket.on("history", (items) => {
 
 
 socket.on("chatMessage", (payload) => {
-  const { login, text, timestamp, color, isBot, replyTo, attachments } = payload;
+  const {
+    login,
+    text,
+    timestamp,
+    color,
+    isBot,
+    replyTo,
+    attachments,
+    avatar,
+    avatarId,
+  } = payload;
 
   if (login === currentLogin) return;
   if (!botsEnabled && isBot) return;
@@ -1118,6 +1232,8 @@ socket.on("chatMessage", (payload) => {
     color,
     text,
     timestamp,
+    avatar,
+    avatarId,
     attachments: attachments || [],
     replyTo: replyTo || null,
     local: false,
@@ -1187,9 +1303,23 @@ function renderUserList() {
     const name = typeof u === "string" ? u : u.login;
     const userColor =
       typeof u === "string" || !u.color ? getColorForLogin(name) : u.color;
+    const avatarUrl =
+      typeof u === "string"
+        ? getAvatarForLogin(name)
+        : u.avatar || getAvatarById(u.avatarId) || getAvatarForLogin(name);
 
     const li = document.createElement("li");
-    li.textContent = name;
+    const avatar = document.createElement("img");
+    avatar.className = "user-avatar";
+    avatar.src = avatarUrl;
+    avatar.alt = name;
+
+    const label = document.createElement("span");
+    label.className = "user-name";
+    label.textContent = name;
+
+    li.appendChild(avatar);
+    li.appendChild(label);
 
     const baseColor = userColor;
     li.style.borderColor = hexToRgba(baseColor, 0.7);
@@ -1201,12 +1331,26 @@ function renderUserList() {
 
   // фейковые ники ботов для нагрузочного теста
   if (botsEnabled) {
-    FAKE_BOT_NAMES.forEach((name) => {
+    FAKE_BOT_NAMES.forEach((name, index) => {
       const li = document.createElement("li");
-      li.textContent = name;
       li.classList.add("fake-bot");
 
       const baseColor = getColorForLogin(name);
+      const avatarOption = avatarCatalog[index % avatarCatalog.length];
+      const avatarUrl = avatarOption ? avatarOption.uri : getAvatarForLogin(name);
+
+      const avatar = document.createElement("img");
+      avatar.className = "user-avatar";
+      avatar.src = avatarUrl;
+      avatar.alt = name;
+
+      const label = document.createElement("span");
+      label.className = "user-name";
+      label.textContent = name;
+
+      li.appendChild(avatar);
+      li.appendChild(label);
+
       li.style.borderColor = hexToRgba(baseColor, 0.5);
       li.style.color = baseColor;
       li.style.boxShadow = `0 0 0 1px ${hexToRgba(baseColor, 0.2)}`;
