@@ -235,7 +235,7 @@ if (replyCancelBtn) {
 
 renderAvatarOptions();
 
-const MAX_AVATAR_SIZE = 512 * 1024;
+const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 
 function updateCustomAvatarPreview(avatarUrl) {
   customAvatar = avatarUrl;
@@ -391,7 +391,7 @@ if (avatarUploadInput) {
       return;
     }
     if (file.size > MAX_AVATAR_SIZE) {
-      alert("Аватар не должен превышать 512 КБ.");
+      alert("Аватар не должен превышать 5 МБ.");
       avatarUploadInput.value = "";
       return;
     }
@@ -1353,12 +1353,18 @@ function renderMessage({
 
   const avatarUrl = avatar || getAvatarById(avatarId) || getAvatarForLogin(login);
 
+  const statusHtml = `
+    <div class="message-status">
+      <span class="message-time">${timeStr}</span>
+      ${login === currentLogin ? `<span class="message-checks">✓✓</span>` : ""}
+    </div>
+  `;
+
   li.innerHTML = `
     <img class="message-avatar" src="${avatarUrl}" alt="${escapeHtml(login)}" />
     <div class="message-bubble">
       <div class="meta">
         <span class="author">${escapeHtml(login)}</span>
-        <span class="time">${timeStr}</span>
       </div>
       ${replyHtml}
       <div class="text">${
@@ -1366,9 +1372,10 @@ function renderMessage({
           ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
               sticker.label
             )}" /></div>`
-          : linkify(text)
+          : formatMessageText(text)
       }</div>
       ${attachmentsHtml}
+      ${statusHtml}
     </div>
   `;
 
@@ -1768,4 +1775,20 @@ function linkify(text) {
 
     return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${urlPart}</a>${trail}`;
   });
+}
+
+const EMOJI_REGEX = /\p{Extended_Pictographic}/gu;
+
+function wrapEmojisInHtml(html) {
+  return html
+    .split(/(<[^>]+>)/g)
+    .map((part) => {
+      if (part.startsWith("<")) return part;
+      return part.replace(EMOJI_REGEX, '<span class="chat-emoji">$&</span>');
+    })
+    .join("");
+}
+
+function formatMessageText(text) {
+  return wrapEmojisInHtml(linkify(text));
 }

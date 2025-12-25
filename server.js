@@ -5,7 +5,7 @@ const fs = require("fs");
 const { Server } = require("socket.io");
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
-const MAX_AVATAR_BYTES = 800 * 1024;
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
 const app = express();
 const server = http.createServer(app);
