@@ -2181,6 +2181,7 @@ socket.on("directMessage", (payload) => {
   } else {
     registerDirectUnread(partner);
     renderUserList();
+    playNotification("direct");
   }
 });
 
