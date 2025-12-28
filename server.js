@@ -376,6 +376,7 @@ io.on("connection", (socket) => {
     let color = null;
     let avatarId = null;
     let avatar = null;
+    let avatarOriginal = null;
 
     if (typeof payload === "string") {
       login = payload;
@@ -390,6 +391,9 @@ io.on("connection", (socket) => {
       if (payload.avatar) {
         avatar = sanitizeAvatar(payload.avatar);
       }
+      if (payload.avatarOriginal) {
+        avatarOriginal = sanitizeAvatar(payload.avatarOriginal);
+      }
     }
 
     let name = login.trim().slice(0, 20);
@@ -397,7 +401,14 @@ io.on("connection", (socket) => {
 
     const resolvedAvatar =
       avatar || getAvatarById(avatarId) || getAvatarForName(name);
-    const user = { login: name, color, avatarId, avatar: resolvedAvatar };
+    const resolvedAvatarOriginal = avatarOriginal || resolvedAvatar;
+    const user = {
+      login: name,
+      color,
+      avatarId,
+      avatar: resolvedAvatar,
+      avatarOriginal: resolvedAvatarOriginal,
+    };
     users.set(socket.id, user);
 
     // персональное приветствие
@@ -455,6 +466,7 @@ io.on("connection", (socket) => {
       replyTo = {
         login: String(data.replyTo.login || "").slice(0, 20),
         text: truncateText(data.replyTo.text || "", 300),
+        color: data.replyTo.color ? String(data.replyTo.color).slice(0, 20) : "",
         messageId: data.replyTo.messageId
           ? String(data.replyTo.messageId).slice(0, 80)
           : "",
@@ -484,6 +496,7 @@ io.on("connection", (socket) => {
     color: user.color,
     avatarId: user.avatarId,
     avatar: user.avatar,
+    avatarOriginal: user.avatarOriginal,
     text: msg,
     replyTo,
     attachments,
@@ -542,6 +555,7 @@ io.on("connection", (socket) => {
         replyTo = {
           login: String(data.replyTo.login || "").slice(0, 20),
           text: truncateText(data.replyTo.text || "", 300),
+          color: data.replyTo.color ? String(data.replyTo.color).slice(0, 20) : "",
           messageId: data.replyTo.messageId
             ? String(data.replyTo.messageId).slice(0, 80)
             : "",
@@ -565,6 +579,7 @@ io.on("connection", (socket) => {
       color: user.color,
       avatarId: user.avatarId,
       avatar: user.avatar,
+      avatarOriginal: user.avatarOriginal,
       text: msg,
       replyTo,
       attachments,

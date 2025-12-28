@@ -101,6 +101,8 @@ const messageElementMap = new Map();
 const readMessageIds = new Set();
 let messageIdCounter = 0;
 let activeReactionTarget = null;
+const recipientHighlightQueue = new Map();
+const recipientHighlightDone = new Set();
 
 const socket = io();
 
@@ -162,6 +164,9 @@ const profileAvatar = document.getElementById("profile-avatar");
 const profileName = document.getElementById("profile-name");
 const profilePrivateBtn = document.getElementById("profile-private");
 const profilePublicBtn = document.getElementById("profile-public");
+const profileAvatarView = document.getElementById("profile-avatar-view");
+const profileAvatarFull = document.getElementById("profile-avatar-full");
+const profileAvatarViewClose = document.getElementById("profile-avatar-view-close");
 const lightbox = document.getElementById("media-lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
 const lightboxClose = lightbox ? lightbox.querySelector(".lightbox-close") : null;
@@ -181,8 +186,10 @@ let currentLogin = null;
 let currentColor = null;
 let currentAvatarId = null;
 let currentAvatar = null;
+let currentAvatarOriginal = null;
 let selectedAvatarId = avatarCatalog[0]?.id || null;
 let customAvatar = null;
+let customAvatarOriginal = null;
 let isPublicMuted = false;
 let isPrivateMuted = false;
 let audioCtx = null;
@@ -261,8 +268,12 @@ let cropDragState = null;
 
 function showReplyPreview() {
   if (!replyPreview || !replyAuthorEl || !replyTextEl || !replyTarget) return;
+  const replyColor =
+    replyTarget.color || getColorForLogin(replyTarget.login || "guest");
   replyAuthorEl.textContent = replyTarget.login;
   replyTextEl.textContent = truncateText(replyTarget.text, 120);
+  replyPreview.style.setProperty("--reply-accent", replyColor);
+  replyAuthorEl.style.color = replyColor;
   replyPreview.classList.remove("hidden");
 }
 
@@ -383,15 +394,27 @@ function createDmPopup() {
   popup.className = "dm-popup hidden";
   popup.innerHTML = `
     <div class="dm-title"></div>
-    <button type="button" class="dm-action">Личное сообщение</button>
+    <button type="button" class="dm-action dm-action--private">Личное сообщение</button>
+    <button type="button" class="dm-action dm-action--public">Публичное сообщение</button>
   `;
-  const actionButton = popup.querySelector(".dm-action");
+  const actionButton = popup.querySelector(".dm-action--private");
   if (actionButton) {
     actionButton.addEventListener("click", () => {
       const login = popup.dataset.login;
       closeDmPopup();
       if (login) {
         setActiveChat("direct", login);
+      }
+    });
+  }
+  const publicButton = popup.querySelector(".dm-action--public");
+  if (publicButton) {
+    publicButton.addEventListener("click", () => {
+      const login = popup.dataset.login;
+      closeDmPopup();
+      if (login) {
+        setActiveChat("public");
+        queuePublicMention(login);
       }
     });
   }
@@ -471,15 +494,25 @@ function closeProfileCard() {
   profileModal.classList.add("hidden");
   profileModal.dataset.login = "";
   profileModal.dataset.color = "";
+  if (profileAvatarView) {
+    profileAvatarView.classList.add("hidden");
+  }
+  if (profileAvatarFull) {
+    profileAvatarFull.src = "";
+  }
 }
 
-function openProfileCard({ name, color, avatarUrl }) {
+function openProfileCard({ name, color, avatarUrl, avatarOriginal }) {
   if (!profileModal || !name || name === currentLogin) return;
+  closeProfileAvatarView();
   profileModal.dataset.login = name;
   profileModal.dataset.color = color || "";
 
   if (profileAvatar) {
-    profileAvatar.src = avatarUrl || getAvatarForLogin(name);
+    const resolvedAvatar = avatarUrl || getAvatarForLogin(name);
+    const resolvedAvatarOriginal = avatarOriginal || resolvedAvatar;
+    profileAvatar.src = resolvedAvatar;
+    profileAvatar.dataset.full = resolvedAvatarOriginal;
     profileAvatar.style.setProperty("--profile-accent", color || "var(--accent)");
   }
   if (profileName) {
@@ -488,6 +521,20 @@ function openProfileCard({ name, color, avatarUrl }) {
   }
 
   profileModal.classList.remove("hidden");
+}
+
+function openProfileAvatarView() {
+  if (!profileAvatar || !profileAvatarView || !profileAvatarFull) return;
+  const fullSrc = profileAvatar.dataset.full;
+  if (!fullSrc) return;
+  profileAvatarFull.src = fullSrc;
+  profileAvatarView.classList.remove("hidden");
+}
+
+function closeProfileAvatarView() {
+  if (!profileAvatarView || !profileAvatarFull) return;
+  profileAvatarView.classList.add("hidden");
+  profileAvatarFull.src = "";
 }
 
 function queuePublicMention(login) {
@@ -507,6 +554,20 @@ function queuePublicMention(login) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getLeadingMention(text, mentionTo) {
+  if (!text || !mentionTo) return null;
+  const pattern = new RegExp(
+    `^(@?${escapeRegExp(mentionTo)})(?=[\\s,.:!?]|$)`,
+    "i"
+  );
+  const match = String(text).match(pattern);
+  if (!match) return null;
+  return {
+    mentionText: match[1],
+    remainder: text.slice(match[1].length),
+  };
 }
 
 function detectMentionTarget(text) {
@@ -673,6 +734,55 @@ function highlightMessageRow(messageEl, durationMs = 2000) {
   setTimeout(() => messageEl.classList.remove("message-highlight"), durationMs);
 }
 
+function scheduleRecipientHighlight(messageId, messageEl, highlightColor) {
+  if (!messageId || !messageEl) return;
+  if (recipientHighlightDone.has(messageId)) return;
+  const existing = recipientHighlightQueue.get(messageId);
+  if (existing && existing.messageEl?.isConnected) return;
+  recipientHighlightQueue.set(messageId, {
+    messageEl,
+    highlightColor,
+    timeoutId: null,
+    ready: false,
+    visibleAt: null,
+  });
+  processRecipientHighlights();
+}
+
+function processRecipientHighlights() {
+  recipientHighlightQueue.forEach((entry, messageId) => {
+    const { messageEl, highlightColor, ready } = entry;
+    if (!messageEl || !messageEl.isConnected) {
+      recipientHighlightQueue.delete(messageId);
+      return;
+    }
+    if (ready) {
+      if (isMessageVisible(messageId)) {
+        messageEl.style.setProperty(
+          "--highlight-bg",
+          hexToRgba(highlightColor, 0.18)
+        );
+        messageEl.style.setProperty(
+          "--highlight-border",
+          hexToRgba(highlightColor, 0.35)
+        );
+        highlightMessageRow(messageEl, 3500);
+        recipientHighlightQueue.delete(messageId);
+        recipientHighlightDone.add(messageId);
+      }
+      return;
+    }
+    if (entry.timeoutId) return;
+    if (!isMessageVisible(messageId)) return;
+    entry.visibleAt = Date.now();
+    entry.timeoutId = setTimeout(() => {
+      entry.ready = true;
+      entry.timeoutId = null;
+      processRecipientHighlights();
+    }, 10000);
+  });
+}
+
 function jumpToMessage(messageId, chatType = "public", partner = null) {
   if (!messageId) return;
   if (chatType === "direct" && partner) {
@@ -713,9 +823,26 @@ if (profileClose) {
 
 if (profileModal) {
   profileModal.addEventListener("click", (event) => {
+    if (event.target === profileAvatarView) {
+      closeProfileAvatarView();
+      return;
+    }
     if (event.target === profileModal) {
       closeProfileCard();
     }
+  });
+}
+
+if (profileAvatar) {
+  profileAvatar.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openProfileAvatarView();
+  });
+}
+
+if (profileAvatarViewClose) {
+  profileAvatarViewClose.addEventListener("click", () => {
+    closeProfileAvatarView();
   });
 }
 
@@ -881,6 +1008,7 @@ function applyAvatarCrop() {
 
 function clearCustomAvatar() {
   customAvatar = null;
+  customAvatarOriginal = null;
   closeAvatarCropper();
   if (avatarUploadPreview) {
     avatarUploadPreview.src = "";
@@ -927,6 +1055,7 @@ if (avatarUploadInput) {
     reader.onload = () => {
       const result = reader.result;
       if (typeof result === "string") {
+        customAvatarOriginal = result;
         openAvatarCropper(result);
       }
     };
@@ -1463,7 +1592,14 @@ async function uploadAttachments(files) {
 }
 
 if (messageInput) {
-  messageInput.addEventListener("input", autoSizeTextarea);
+  messageInput.addEventListener("input", () => {
+    autoSizeTextarea();
+    if (!mentionTarget) return;
+    const detected = detectMentionTarget(messageInput.value);
+    if (!detected || !isSameLogin(detected, mentionTarget)) {
+      mentionTarget = null;
+    }
+  });
   autoSizeTextarea();
 
   messageInput.addEventListener("keydown", (e) => {
@@ -1482,10 +1618,28 @@ if (messagesList) {
     if (isMessagesNearBottom()) {
       clearUnreadMessages();
       maybeAutoDismissVisibleNotifications();
+      processRecipientHighlights();
       return;
     }
     updateUnreadOnScroll();
     maybeAutoDismissVisibleNotifications();
+    processRecipientHighlights();
+  });
+
+  messagesList.addEventListener("click", (event) => {
+    const authorButton = event.target.closest(".author.is-clickable");
+    if (authorButton && messagesList.contains(authorButton)) {
+      event.stopPropagation();
+      const login = authorButton.dataset.login;
+      if (login) {
+        setActiveChat("public");
+        queuePublicMention(login);
+      }
+      return;
+    }
+    if (event.target === messagesList) {
+      mentionTarget = null;
+    }
   });
 }
 
@@ -1917,6 +2071,7 @@ function appendMessageElement(messageEl, { countUnread }) {
   } else if (countUnread) {
     registerUnreadMessage(messageEl);
   }
+  processRecipientHighlights();
   maybeAutoDismissVisibleNotifications();
 }
 
@@ -2135,7 +2290,9 @@ function renderMessage({
     <img class="message-avatar" src="${avatarUrl}" alt="${escapeHtml(login)}" />
     <div class="message-bubble">
       <div class="meta">
-        <span class="author">${escapeHtml(login)}</span>
+        <button type="button" class="author" data-login="${escapeHtml(login)}">${escapeHtml(
+          login
+        )}</button>
       </div>
       ${replyHtml}
       <div class="message-body">
@@ -2144,7 +2301,7 @@ function renderMessage({
             ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
                 sticker.label
               )}" /></div>`
-            : formatMessageText(text)
+            : formatMessageText(text, { mentionTo })
         }</div>
         ${statusHtml}
       </div>
@@ -2193,6 +2350,11 @@ function renderMessage({
   const authorEl = li.querySelector(".author");
   if (authorEl) {
     authorEl.style.color = baseColor;
+    if (login && login !== currentLogin) {
+      authorEl.classList.add("is-clickable");
+    } else {
+      authorEl.disabled = true;
+    }
   }
 
   const avatarEl = li.querySelector(".message-avatar");
@@ -2208,6 +2370,28 @@ function renderMessage({
     }
   }
 
+  const replyBlock = li.querySelector(".reply-block");
+  if (replyBlock && replyTo?.login) {
+    const replyColor =
+      replyTo.color || getColorForLogin(replyTo.login || "guest");
+    replyBlock.style.setProperty("--reply-accent", replyColor);
+    const replyAuthor = replyBlock.querySelector(".reply-author");
+    if (replyAuthor) {
+      replyAuthor.style.color = replyColor;
+    }
+  }
+
+  const mentionChip = li.querySelector(".mention-chip");
+  if (mentionChip && mentionTo) {
+    const mentionColor = getColorForLogin(mentionTo);
+    mentionChip.style.setProperty("--mention-color", mentionColor);
+    mentionChip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setActiveChat("public");
+      queuePublicMention(mentionTo);
+    });
+  }
+
   // клик по сообщению — выбрать его как цель для ответа
   if (bubbleEl) {
     bubbleEl.addEventListener("click", (event) => {
@@ -2216,12 +2400,12 @@ function renderMessage({
         login,
         text: String(text || ""),
         messageId: resolvedMessageId,
+        color: baseColor,
       };
       showReplyPreview();
     });
   }
 
-  const replyBlock = li.querySelector(".reply-block");
   if (replyBlock && replyTo?.messageId) {
     replyBlock.classList.add("is-clickable");
     replyBlock.addEventListener("click", (event) => {
@@ -2260,9 +2444,9 @@ function renderMessage({
     ((mentionTo && isSameLogin(mentionTo, currentLogin)) ||
       (replyTo?.login && isSameLogin(replyTo.login, currentLogin)));
   if (shouldHighlightForRecipient) {
-    requestAnimationFrame(() => {
-      highlightMessageRow(li, 3500);
-    });
+    const highlightColor =
+      color || getColorForLogin(login || "guest");
+    scheduleRecipientHighlight(resolvedMessageId, li, highlightColor);
   }
 }
 
@@ -2276,6 +2460,7 @@ loginForm.addEventListener("submit", (e) => {
   currentLogin = value;
   currentColor = (colorInput && colorInput.value) || "#38bdf8";
   currentAvatar = customAvatar;
+  currentAvatarOriginal = customAvatarOriginal || customAvatar;
   currentAvatarId = customAvatar ? null : selectedAvatarId || avatarCatalog[0]?.id || null;
 
   socket.emit("join", {
@@ -2283,6 +2468,7 @@ loginForm.addEventListener("submit", (e) => {
     color: currentColor,
     avatarId: currentAvatarId,
     avatar: currentAvatar,
+    avatarOriginal: currentAvatarOriginal,
   });
 
   if (botsEnabled) {
@@ -2348,6 +2534,7 @@ messageForm.addEventListener("submit", async (e) => {
     color: currentColor || "#38bdf8",
     avatarId: currentAvatarId,
     avatar: currentAvatar,
+    avatarOriginal: currentAvatarOriginal,
     text,
     timestamp: ts,
     local: true,
@@ -2456,6 +2643,7 @@ socket.on("history", (items) => {
       timestamp: msg.timestamp,
       avatar: msg.avatar,
       avatarId: msg.avatarId,
+      avatarOriginal: msg.avatarOriginal,
       attachments: msg.attachments || [],
       replyTo: msg.replyTo || null,
       mentionTo: msg.mentionTo || null,
@@ -2482,6 +2670,7 @@ socket.on("chatMessage", (payload) => {
     attachments,
     avatar,
     avatarId,
+    avatarOriginal,
     messageId,
     readAll,
     mentionTo,
@@ -2497,6 +2686,7 @@ socket.on("chatMessage", (payload) => {
     timestamp,
     avatar,
     avatarId,
+    avatarOriginal,
     attachments: attachments || [],
     replyTo: replyTo || null,
     mentionTo: mentionTo || null,
@@ -2555,6 +2745,7 @@ socket.on("directMessage", (payload) => {
     attachments,
     avatar,
     avatarId,
+    avatarOriginal,
     messageId,
     to,
   } = payload || {};
@@ -2572,6 +2763,7 @@ socket.on("directMessage", (payload) => {
     timestamp,
     avatar,
     avatarId,
+    avatarOriginal,
     attachments: attachments || [],
     replyTo: replyTo || null,
     readAll: false,
@@ -2628,7 +2820,14 @@ function getEntryTimestamp(entry) {
   return Number.isFinite(value) ? value : 0;
 }
 
-function resolveUserVisuals({ name, user, fallbackColor, fallbackAvatar, fallbackAvatarId }) {
+function resolveUserVisuals({
+  name,
+  user,
+  fallbackColor,
+  fallbackAvatar,
+  fallbackAvatarId,
+  fallbackAvatarOriginal,
+}) {
   const color =
     (user && user.color) || fallbackColor || getColorForLogin(name);
   const avatarUrl =
@@ -2636,7 +2835,9 @@ function resolveUserVisuals({ name, user, fallbackColor, fallbackAvatar, fallbac
     (user && user.avatar) ||
     getAvatarById(fallbackAvatarId || (user && user.avatarId)) ||
     getAvatarForLogin(name);
-  return { color, avatarUrl };
+  const avatarOriginal =
+    fallbackAvatarOriginal || (user && user.avatarOriginal) || avatarUrl;
+  return { color, avatarUrl, avatarOriginal };
 }
 
 function createUserListItem({
@@ -2702,12 +2903,13 @@ function renderSelfUser() {
   if (!currentLogin) return;
 
   const user = getOnlineUser(currentLogin);
-  const { color, avatarUrl } = resolveUserVisuals({
+  const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
     name: currentLogin,
     user,
     fallbackColor: currentColor,
     fallbackAvatar: currentAvatar,
     fallbackAvatarId: currentAvatarId,
+    fallbackAvatarOriginal: currentAvatarOriginal,
   });
 
   const li = createUserListItem({
@@ -2738,13 +2940,14 @@ function renderDirectList(onlineLogins) {
       const history = getDirectHistory(partner);
       const lastEntry = history[history.length - 1] || null;
       const onlineUser = getOnlineUser(partner);
-      const { color, avatarUrl } = resolveUserVisuals({
-        name: partner,
-        user: onlineUser,
-        fallbackColor: lastEntry?.color,
-        fallbackAvatar: lastEntry?.avatar,
-        fallbackAvatarId: lastEntry?.avatarId,
-      });
+  const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
+    name: partner,
+    user: onlineUser,
+    fallbackColor: lastEntry?.color,
+    fallbackAvatar: lastEntry?.avatar,
+    fallbackAvatarId: lastEntry?.avatarId,
+    fallbackAvatarOriginal: lastEntry?.avatarOriginal,
+  });
       return {
         partner,
         color,
@@ -2790,7 +2993,7 @@ function renderOnlineList() {
 
   onlineUsers.forEach((user) => {
     const name = user.login;
-    const { color, avatarUrl } = resolveUserVisuals({ name, user });
+      const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({ name, user });
     const li = createUserListItem({
       name,
       color,
@@ -2798,7 +3001,7 @@ function renderOnlineList() {
       isClickable: true,
     });
     li.addEventListener("click", () => {
-      openProfileCard({ name, color, avatarUrl });
+      openProfileCard({ name, color, avatarUrl, avatarOriginal });
     });
     usersList.appendChild(li);
   });
@@ -2832,7 +3035,7 @@ function renderOnlineList() {
       li.style.boxShadow = `0 0 0 1px ${hexToRgba(baseColor, 0.2)}`;
 
       li.addEventListener("click", () => {
-        openProfileCard({ name, color: baseColor, avatarUrl });
+        openProfileCard({ name, color: baseColor, avatarUrl, avatarOriginal: avatarUrl });
       });
 
       usersList.appendChild(li);
@@ -2899,6 +3102,17 @@ function wrapEmojisInHtml(html) {
     .join("");
 }
 
-function formatMessageText(text) {
-  return wrapEmojisInHtml(linkify(text));
+function formatMessageText(text, { mentionTo } = {}) {
+  if (!mentionTo) {
+    return wrapEmojisInHtml(linkify(text));
+  }
+  const mentionMatch = getLeadingMention(text, mentionTo);
+  if (!mentionMatch) {
+    return wrapEmojisInHtml(linkify(text));
+  }
+  const mentionHtml = `<button type="button" class="mention-chip" data-mention="${escapeHtml(
+    mentionTo
+  )}">${escapeHtml(mentionMatch.mentionText)}</button>`;
+  const remainderHtml = wrapEmojisInHtml(linkify(mentionMatch.remainder));
+  return `${mentionHtml}${remainderHtml}`;
 }
