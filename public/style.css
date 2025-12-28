@@ -477,6 +477,17 @@ body {
     linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(8, 16, 32, 0.98));
 }
 
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebar-section--stretch {
+  flex: 1;
+  min-height: 0;
+}
+
 
 .sidebar h2 {
   margin: 0 0 4px;
@@ -524,7 +535,6 @@ body {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-soft);
-  flex: 1;
   overflow-y: auto;
 
   /* более яркий, контрастный фон под список ников */
@@ -539,6 +549,27 @@ body {
     0 0 40px rgba(15, 23, 42, 0.97);
 }
 
+.users-list--stretch {
+  flex: 1;
+  min-height: 0;
+}
+
+.users-list li.is-active {
+  background: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.25),
+    rgba(15, 23, 42, 0.9)
+  );
+  border-color: rgba(56, 189, 248, 0.7);
+}
+
+.users-list li.is-self {
+  background: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.2),
+    rgba(15, 23, 42, 0.9)
+  );
+}
 
 .users-list li {
   padding: 8px 12px;
@@ -566,6 +597,16 @@ body {
     box-shadow 0.12s ease,
     border-color 0.12s ease,
     background 0.12s ease;
+}
+
+.users-list--compact {
+  padding: 8px;
+  gap: 6px;
+}
+
+.users-list--compact li {
+  padding: 6px 10px;
+  font-size: 14px;
 }
 
 .users-list li.is-clickable {
@@ -610,6 +651,40 @@ body {
 
 .user-name {
   flex: 1;
+}
+
+.user-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.2);
+  color: var(--text);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.user-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.6);
+  box-shadow: 0 0 6px rgba(15, 23, 42, 0.7);
+}
+
+.user-status.is-online {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
+}
+
+.users-empty {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  opacity: 0.7;
+  align-self: stretch;
+  text-align: center;
 }
 
 .user-unread {
@@ -1463,6 +1538,10 @@ body {
     flex-direction: row;
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .sidebar-section {
+    flex: 1 1 100%;
   }
 
   .users-list {
