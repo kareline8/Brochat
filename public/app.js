@@ -498,6 +498,33 @@ function queuePublicMention(login) {
   }
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function detectMentionTarget(text) {
+  if (!text) return null;
+  const trimmed = String(text).trim();
+  if (!trimmed) return null;
+
+  const candidates = Array.from(
+    new Set(
+      lastUserList
+        .map((user) => normalizeUserName(user))
+        .filter((login) => login && login !== currentLogin)
+    )
+  ).sort((a, b) => b.length - a.length);
+
+  for (const login of candidates) {
+    const pattern = new RegExp(`^@?${escapeRegExp(login)}([,.:\\s]|$)`, "i");
+    if (pattern.test(trimmed)) {
+      return login;
+    }
+  }
+
+  return null;
+}
+
 function removeNotification(item) {
   if (!item) return;
   item.classList.add("is-leaving");
@@ -2185,9 +2212,13 @@ messageForm.addEventListener("submit", async (e) => {
   const isDirectChat =
     activeChat.type === "direct" && activeChat.partner && activeChat.partner !== currentLogin;
   const directPartner = isDirectChat ? activeChat.partner : null;
+  const mentionFromText =
+    !isDirectChat && !mentionTarget ? detectMentionTarget(text) : null;
   const mentionTo =
     !isDirectChat && mentionTarget && mentionTarget !== currentLogin
       ? mentionTarget
+      : mentionFromText && mentionFromText !== currentLogin
+        ? mentionFromText
       : null;
 
   // локально показываем сразу, с учётом reply
@@ -2601,11 +2632,7 @@ function renderDirectList(onlineLogins) {
       isOnline: onlineLogins.has(item.partner),
     });
     li.addEventListener("click", () => {
-      openProfileCard({
-        name: item.partner,
-        color: item.color,
-        avatarUrl: item.avatarUrl,
-      });
+      setActiveChat("direct", item.partner);
     });
     directList.appendChild(li);
   });

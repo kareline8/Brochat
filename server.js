@@ -106,6 +106,30 @@ function truncateText(text, limit) {
   return chars.slice(0, limit).join("");
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function detectMentionTarget(text, senderLogin) {
+  if (!text) return "";
+  const trimmed = String(text).trim();
+  if (!trimmed) return "";
+
+  const candidates = Array.from(users.values())
+    .map((user) => user?.login)
+    .filter((login) => login && login !== senderLogin)
+    .sort((a, b) => b.length - a.length);
+
+  for (const login of candidates) {
+    const pattern = new RegExp(`^@?${escapeRegExp(login)}([,.:\\s]|$)`, "i");
+    if (pattern.test(trimmed)) {
+      return login;
+    }
+  }
+
+  return "";
+}
+
 function sanitizeAvatar(avatar) {
   if (!avatar || typeof avatar !== "string") return null;
   if (!avatar.startsWith("data:image/")) return null;
@@ -448,6 +472,10 @@ io.on("connection", (socket) => {
 
   if (!messageId) {
     messageId = generateMessageId();
+  }
+
+  if (!mentionTo) {
+    mentionTo = detectMentionTarget(msg, user.login);
   }
 
   const payload = {
