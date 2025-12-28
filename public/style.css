@@ -2006,6 +2006,14 @@ body {
   color: var(--reply-accent, var(--accent));
 }
 
+.reply-block .reply-author.is-clickable {
+  cursor: pointer;
+}
+
+.reply-block .reply-author.is-clickable:hover {
+  text-decoration: underline;
+}
+
 .reply-block .reply-snippet {
   color: var(--text-soft);
 }
@@ -2040,6 +2048,8 @@ body {
     inset 0 0 0 1px var(--highlight-border, rgba(56, 189, 248, 0.35)),
     0 0 18px var(--highlight-border, rgba(56, 189, 248, 0.35));
   z-index: 0;
+  opacity: 1;
+  transition: opacity 0.6s ease, box-shadow 0.6s ease;
 }
 
 .message.message-highlight > * {
@@ -2052,6 +2062,18 @@ body {
     0 0 18px rgba(56, 189, 248, 0.45),
     0 0 32px rgba(168, 85, 247, 0.3);
   border-color: rgba(56, 189, 248, 0.85);
+  transition: box-shadow 0.6s ease, border-color 0.6s ease;
+}
+
+.message.message-highlight.is-fading::before {
+  opacity: 0;
+  box-shadow: none;
+}
+
+.message-highlight.is-fading .message-bubble {
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.35);
+  border-color: var(--bubble-border, rgba(148, 163, 184, 0.3));
+}
 }
 
 /* Lightbox */
