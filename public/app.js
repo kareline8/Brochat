@@ -575,9 +575,14 @@ function pushChatNotification({ title, body, actionLabel = "Перейти", onA
 
   item.appendChild(content);
   item.appendChild(actions);
+  item.addEventListener("click", (event) => {
+    if (event.target === actionButton || event.target === closeButton) return;
+    if (typeof onAction === "function") {
+      onAction();
+    }
+    removeNotification(item);
+  });
   notificationStack.appendChild(item);
-
-  setTimeout(() => removeNotification(item), 9000);
 }
 
 function highlightMessage(messageId) {
@@ -1270,6 +1275,21 @@ function sendSticker(id) {
   messageForm.requestSubmit();
 }
 
+function positionEmojiPanel() {
+  if (!emojiPanel || !emojiButton) return;
+  const chatContainer = document.querySelector(".chat");
+  if (!chatContainer) return;
+  const chatRect = chatContainer.getBoundingClientRect();
+  const buttonRect = emojiButton.getBoundingClientRect();
+  const panelWidth = emojiPanel.offsetWidth || 0;
+  const padding = 16;
+  const desiredLeft = buttonRect.left - chatRect.left;
+  const maxLeft = Math.max(padding, chatRect.width - panelWidth - padding);
+  const left = Math.min(Math.max(desiredLeft, padding), maxLeft);
+  emojiPanel.style.left = `${left}px`;
+  emojiPanel.style.right = "auto";
+}
+
 function showEmojiPanel() {
   if (!emojiPanel) return;
   emojiPanel.classList.remove("hidden");
@@ -1278,6 +1298,7 @@ function showEmojiPanel() {
   }
   renderEmojiGrid("");
   renderStickerGrid();
+  positionEmojiPanel();
 }
 
 function hideEmojiPanel() {
@@ -1441,6 +1462,10 @@ document.addEventListener("click", (event) => {
     return;
   }
   hideEmojiPanel();
+});
+window.addEventListener("resize", () => {
+  if (!emojiPanel || emojiPanel.classList.contains("hidden")) return;
+  positionEmojiPanel();
 });
 
 // --- звук уведомлений ---
@@ -2390,6 +2415,9 @@ socket.on("chatMessage", (payload) => {
       actionLabel: "Перейти к сообщению",
       onAction: () => jumpToMessage(messageId, "public"),
     });
+    if (activeChat.type !== "public") {
+      playNotification("public");
+    }
   }
 
   if (
