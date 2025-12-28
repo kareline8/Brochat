@@ -101,6 +101,7 @@ const messageElementMap = new Map();
 const readMessageIds = new Set();
 let messageIdCounter = 0;
 let activeReactionTarget = null;
+const recipientHighlightQueue = new Map();
 
 const socket = io();
 
@@ -162,6 +163,9 @@ const profileAvatar = document.getElementById("profile-avatar");
 const profileName = document.getElementById("profile-name");
 const profilePrivateBtn = document.getElementById("profile-private");
 const profilePublicBtn = document.getElementById("profile-public");
+const profileAvatarView = document.getElementById("profile-avatar-view");
+const profileAvatarFull = document.getElementById("profile-avatar-full");
+const profileAvatarViewClose = document.getElementById("profile-avatar-view-close");
 const lightbox = document.getElementById("media-lightbox");
 const lightboxImage = document.getElementById("lightbox-image");
 const lightboxClose = lightbox ? lightbox.querySelector(".lightbox-close") : null;
@@ -261,8 +265,12 @@ let cropDragState = null;
 
 function showReplyPreview() {
   if (!replyPreview || !replyAuthorEl || !replyTextEl || !replyTarget) return;
+  const replyColor =
+    replyTarget.color || getColorForLogin(replyTarget.login || "guest");
   replyAuthorEl.textContent = replyTarget.login;
   replyTextEl.textContent = truncateText(replyTarget.text, 120);
+  replyPreview.style.setProperty("--reply-accent", replyColor);
+  replyAuthorEl.style.color = replyColor;
   replyPreview.classList.remove("hidden");
 }
 
@@ -383,15 +391,27 @@ function createDmPopup() {
   popup.className = "dm-popup hidden";
   popup.innerHTML = `
     <div class="dm-title"></div>
-    <button type="button" class="dm-action">Личное сообщение</button>
+    <button type="button" class="dm-action dm-action--private">Личное сообщение</button>
+    <button type="button" class="dm-action dm-action--public">Публичное сообщение</button>
   `;
-  const actionButton = popup.querySelector(".dm-action");
+  const actionButton = popup.querySelector(".dm-action--private");
   if (actionButton) {
     actionButton.addEventListener("click", () => {
       const login = popup.dataset.login;
       closeDmPopup();
       if (login) {
         setActiveChat("direct", login);
+      }
+    });
+  }
+  const publicButton = popup.querySelector(".dm-action--public");
+  if (publicButton) {
+    publicButton.addEventListener("click", () => {
+      const login = popup.dataset.login;
+      closeDmPopup();
+      if (login) {
+        setActiveChat("public");
+        queuePublicMention(login);
       }
     });
   }
@@ -471,15 +491,24 @@ function closeProfileCard() {
   profileModal.classList.add("hidden");
   profileModal.dataset.login = "";
   profileModal.dataset.color = "";
+  if (profileAvatarView) {
+    profileAvatarView.classList.add("hidden");
+  }
+  if (profileAvatarFull) {
+    profileAvatarFull.src = "";
+  }
 }
 
 function openProfileCard({ name, color, avatarUrl }) {
   if (!profileModal || !name || name === currentLogin) return;
+  closeProfileAvatarView();
   profileModal.dataset.login = name;
   profileModal.dataset.color = color || "";
 
   if (profileAvatar) {
-    profileAvatar.src = avatarUrl || getAvatarForLogin(name);
+    const resolvedAvatar = avatarUrl || getAvatarForLogin(name);
+    profileAvatar.src = resolvedAvatar;
+    profileAvatar.dataset.full = resolvedAvatar;
     profileAvatar.style.setProperty("--profile-accent", color || "var(--accent)");
   }
   if (profileName) {
@@ -488,6 +517,20 @@ function openProfileCard({ name, color, avatarUrl }) {
   }
 
   profileModal.classList.remove("hidden");
+}
+
+function openProfileAvatarView() {
+  if (!profileAvatar || !profileAvatarView || !profileAvatarFull) return;
+  const fullSrc = profileAvatar.dataset.full;
+  if (!fullSrc) return;
+  profileAvatarFull.src = fullSrc;
+  profileAvatarView.classList.remove("hidden");
+}
+
+function closeProfileAvatarView() {
+  if (!profileAvatarView || !profileAvatarFull) return;
+  profileAvatarView.classList.add("hidden");
+  profileAvatarFull.src = "";
 }
 
 function queuePublicMention(login) {
@@ -507,6 +550,20 @@ function queuePublicMention(login) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getLeadingMention(text, mentionTo) {
+  if (!text || !mentionTo) return null;
+  const pattern = new RegExp(
+    `^(@?${escapeRegExp(mentionTo)})(?=[\\s,.:!?]|$)`,
+    "i"
+  );
+  const match = String(text).match(pattern);
+  if (!match) return null;
+  return {
+    mentionText: match[1],
+    remainder: text.slice(match[1].length),
+  };
 }
 
 function detectMentionTarget(text) {
@@ -673,6 +730,34 @@ function highlightMessageRow(messageEl, durationMs = 2000) {
   setTimeout(() => messageEl.classList.remove("message-highlight"), durationMs);
 }
 
+function scheduleRecipientHighlight(messageId, messageEl, highlightColor) {
+  if (!messageId || !messageEl) return;
+  if (recipientHighlightQueue.has(messageId)) return;
+  recipientHighlightQueue.set(messageId, {
+    messageEl,
+    highlightColor,
+    timeoutId: null,
+  });
+  processRecipientHighlights();
+}
+
+function processRecipientHighlights() {
+  recipientHighlightQueue.forEach((entry, messageId) => {
+    if (entry.timeoutId) return;
+    if (!isMessageVisible(messageId)) return;
+    const { messageEl, highlightColor } = entry;
+    messageEl.style.setProperty("--highlight-bg", hexToRgba(highlightColor, 0.18));
+    messageEl.style.setProperty(
+      "--highlight-border",
+      hexToRgba(highlightColor, 0.35)
+    );
+    entry.timeoutId = setTimeout(() => {
+      highlightMessageRow(messageEl, 3500);
+      recipientHighlightQueue.delete(messageId);
+    }, 10000);
+  });
+}
+
 function jumpToMessage(messageId, chatType = "public", partner = null) {
   if (!messageId) return;
   if (chatType === "direct" && partner) {
@@ -713,9 +798,26 @@ if (profileClose) {
 
 if (profileModal) {
   profileModal.addEventListener("click", (event) => {
+    if (event.target === profileAvatarView) {
+      closeProfileAvatarView();
+      return;
+    }
     if (event.target === profileModal) {
       closeProfileCard();
     }
+  });
+}
+
+if (profileAvatar) {
+  profileAvatar.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openProfileAvatarView();
+  });
+}
+
+if (profileAvatarViewClose) {
+  profileAvatarViewClose.addEventListener("click", () => {
+    closeProfileAvatarView();
   });
 }
 
@@ -1463,7 +1565,14 @@ async function uploadAttachments(files) {
 }
 
 if (messageInput) {
-  messageInput.addEventListener("input", autoSizeTextarea);
+  messageInput.addEventListener("input", () => {
+    autoSizeTextarea();
+    if (!mentionTarget) return;
+    const detected = detectMentionTarget(messageInput.value);
+    if (!detected || !isSameLogin(detected, mentionTarget)) {
+      mentionTarget = null;
+    }
+  });
   autoSizeTextarea();
 
   messageInput.addEventListener("keydown", (e) => {
@@ -1482,10 +1591,18 @@ if (messagesList) {
     if (isMessagesNearBottom()) {
       clearUnreadMessages();
       maybeAutoDismissVisibleNotifications();
+      processRecipientHighlights();
       return;
     }
     updateUnreadOnScroll();
     maybeAutoDismissVisibleNotifications();
+    processRecipientHighlights();
+  });
+
+  messagesList.addEventListener("click", (event) => {
+    if (event.target === messagesList) {
+      mentionTarget = null;
+    }
   });
 }
 
@@ -1917,6 +2034,7 @@ function appendMessageElement(messageEl, { countUnread }) {
   } else if (countUnread) {
     registerUnreadMessage(messageEl);
   }
+  processRecipientHighlights();
   maybeAutoDismissVisibleNotifications();
 }
 
@@ -2144,7 +2262,7 @@ function renderMessage({
             ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
                 sticker.label
               )}" /></div>`
-            : formatMessageText(text)
+            : formatMessageText(text, { mentionTo })
         }</div>
         ${statusHtml}
       </div>
@@ -2193,6 +2311,14 @@ function renderMessage({
   const authorEl = li.querySelector(".author");
   if (authorEl) {
     authorEl.style.color = baseColor;
+    if (login && login !== currentLogin) {
+      authorEl.classList.add("is-clickable");
+      authorEl.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setActiveChat("public");
+        queuePublicMention(login);
+      });
+    }
   }
 
   const avatarEl = li.querySelector(".message-avatar");
@@ -2208,6 +2334,28 @@ function renderMessage({
     }
   }
 
+  const replyBlock = li.querySelector(".reply-block");
+  if (replyBlock && replyTo?.login) {
+    const replyColor =
+      replyTo.color || getColorForLogin(replyTo.login || "guest");
+    replyBlock.style.setProperty("--reply-accent", replyColor);
+    const replyAuthor = replyBlock.querySelector(".reply-author");
+    if (replyAuthor) {
+      replyAuthor.style.color = replyColor;
+    }
+  }
+
+  const mentionChip = li.querySelector(".mention-chip");
+  if (mentionChip && mentionTo) {
+    const mentionColor = getColorForLogin(mentionTo);
+    mentionChip.style.setProperty("--mention-color", mentionColor);
+    mentionChip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setActiveChat("public");
+      queuePublicMention(mentionTo);
+    });
+  }
+
   // клик по сообщению — выбрать его как цель для ответа
   if (bubbleEl) {
     bubbleEl.addEventListener("click", (event) => {
@@ -2216,12 +2364,12 @@ function renderMessage({
         login,
         text: String(text || ""),
         messageId: resolvedMessageId,
+        color: baseColor,
       };
       showReplyPreview();
     });
   }
 
-  const replyBlock = li.querySelector(".reply-block");
   if (replyBlock && replyTo?.messageId) {
     replyBlock.classList.add("is-clickable");
     replyBlock.addEventListener("click", (event) => {
@@ -2260,9 +2408,9 @@ function renderMessage({
     ((mentionTo && isSameLogin(mentionTo, currentLogin)) ||
       (replyTo?.login && isSameLogin(replyTo.login, currentLogin)));
   if (shouldHighlightForRecipient) {
-    requestAnimationFrame(() => {
-      highlightMessageRow(li, 3500);
-    });
+    const highlightColor =
+      color || getColorForLogin(login || "guest");
+    scheduleRecipientHighlight(resolvedMessageId, li, highlightColor);
   }
 }
 
@@ -2899,6 +3047,17 @@ function wrapEmojisInHtml(html) {
     .join("");
 }
 
-function formatMessageText(text) {
-  return wrapEmojisInHtml(linkify(text));
+function formatMessageText(text, { mentionTo } = {}) {
+  if (!mentionTo) {
+    return wrapEmojisInHtml(linkify(text));
+  }
+  const mentionMatch = getLeadingMention(text, mentionTo);
+  if (!mentionMatch) {
+    return wrapEmojisInHtml(linkify(text));
+  }
+  const mentionHtml = `<button type="button" class="mention-chip" data-mention="${escapeHtml(
+    mentionTo
+  )}">${escapeHtml(mentionMatch.mentionText)}</button>`;
+  const remainderHtml = wrapEmojisInHtml(linkify(mentionMatch.remainder));
+  return `${mentionHtml}${remainderHtml}`;
 }
