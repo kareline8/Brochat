@@ -537,8 +537,9 @@ function closeProfileAvatarView() {
   profileAvatarFull.src = "";
 }
 
-function queuePublicMention(login) {
-  if (!login || login === currentLogin) return;
+function queuePublicMention(login, { allowSelf = false } = {}) {
+  if (!login) return;
+  if (!allowSelf && login === currentLogin) return;
   mentionTarget = login;
   if (messageInput) {
     const trimmed = messageInput.value.trim();
@@ -724,14 +725,72 @@ function highlightMessage(messageId, { durationMs = 2000, shouldScroll = true } 
   if (shouldScroll) {
     messageEl.scrollIntoView({ behavior: "smooth", block: "center" });
   }
-  highlightMessageRow(messageEl, durationMs);
+  highlightMessageRow(messageEl, { durationMs });
   return true;
 }
 
-function highlightMessageRow(messageEl, durationMs = 2000) {
+const highlightFadeTimers = new WeakMap();
+const highlightHoverHandlers = new WeakMap();
+const HIGHLIGHT_FADE_MS = 600;
+
+function clearHighlightTimer(messageEl) {
+  const existingTimer = highlightFadeTimers.get(messageEl);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    highlightFadeTimers.delete(messageEl);
+  }
+}
+
+function removeHighlight(messageEl) {
   if (!messageEl) return;
+  messageEl.classList.remove("message-highlight", "is-fading");
+}
+
+function fadeOutHighlight(messageEl) {
+  if (!messageEl || !messageEl.classList.contains("message-highlight")) return;
+  if (messageEl.classList.contains("is-fading")) return;
+  messageEl.classList.add("is-fading");
+  clearHighlightTimer(messageEl);
+  const cleanupTimer = setTimeout(() => {
+    removeHighlight(messageEl);
+    highlightFadeTimers.delete(messageEl);
+  }, HIGHLIGHT_FADE_MS);
+  highlightFadeTimers.set(messageEl, cleanupTimer);
+}
+
+function attachHoverDismiss(messageEl) {
+  if (!messageEl) return;
+  if (highlightHoverHandlers.has(messageEl)) return;
+  const handler = () => fadeOutHighlight(messageEl);
+  highlightHoverHandlers.set(messageEl, handler);
+  messageEl.addEventListener("mouseenter", handler, { once: true });
+}
+
+function highlightMessageRow(
+  messageEl,
+  { durationMs = 2000, dismissOnHover = false, autoDismissMs = null } = {}
+) {
+  if (!messageEl) return;
+  messageEl.classList.remove("is-fading");
   messageEl.classList.add("message-highlight");
-  setTimeout(() => messageEl.classList.remove("message-highlight"), durationMs);
+  clearHighlightTimer(messageEl);
+  if (dismissOnHover) {
+    attachHoverDismiss(messageEl);
+  } else {
+    const existingHandler = highlightHoverHandlers.get(messageEl);
+    if (existingHandler) {
+      messageEl.removeEventListener("mouseenter", existingHandler);
+      highlightHoverHandlers.delete(messageEl);
+    }
+  }
+  const dismissDelay =
+    typeof autoDismissMs === "number" && autoDismissMs > 0
+      ? autoDismissMs
+      : durationMs;
+  if (dismissDelay > 0) {
+    const timer = setTimeout(() => fadeOutHighlight(messageEl), dismissDelay);
+    highlightFadeTimers.set(messageEl, timer);
+  }
 }
 
 function scheduleRecipientHighlight(messageId, messageEl, highlightColor) {
@@ -761,7 +820,10 @@ function processRecipientHighlights() {
     );
     recipientHighlightQueue.delete(messageId);
     recipientHighlightDone.add(messageId);
-    highlightMessageRow(messageEl, 10000);
+    highlightMessageRow(messageEl, {
+      autoDismissMs: 60000,
+      dismissOnHover: true,
+    });
   });
 }
 
@@ -2354,6 +2416,12 @@ function renderMessage({
     const replyAuthor = replyBlock.querySelector(".reply-author");
     if (replyAuthor) {
       replyAuthor.style.color = replyColor;
+      replyAuthor.classList.add("is-clickable");
+      replyAuthor.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setActiveChat("public");
+        queuePublicMention(replyTo.login, { allowSelf: true });
+      });
     }
   }
 
@@ -2364,7 +2432,7 @@ function renderMessage({
     mentionChip.addEventListener("click", (event) => {
       event.stopPropagation();
       setActiveChat("public");
-      queuePublicMention(mentionTo);
+      queuePublicMention(mentionTo, { allowSelf: true });
     });
   }
 
