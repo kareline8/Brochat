@@ -199,6 +199,13 @@ let firstUnreadMessage = null;
 let activeChat = { type: "public", partner: null };
 let mentionTarget = null;
 
+function setChatActivity(active) {
+  isChatActive = active;
+  if (isChatActive) {
+    maybeAutoDismissVisibleNotifications();
+  }
+}
+
 const publicHistory = [];
 const directHistories = new Map();
 const directUnreadCounts = new Map();
@@ -531,7 +538,62 @@ function removeNotification(item) {
   setTimeout(() => item.remove(), 200);
 }
 
-function pushChatNotification({ title, body, actionLabel = "Перейти", onAction }) {
+function isMessageVisible(messageId) {
+  if (!messagesList || !messageId) return false;
+  const messageEl = messageElementMap.get(messageId);
+  if (!messageEl) return false;
+  const containerRect = messagesList.getBoundingClientRect();
+  const messageRect = messageEl.getBoundingClientRect();
+  return (
+    messageRect.bottom > containerRect.top + 8 &&
+    messageRect.top < containerRect.bottom - 8
+  );
+}
+
+function scheduleNotificationDismiss(item, delayMs) {
+  if (!item || item.dataset.dismissScheduled === "true") return;
+  item.dataset.dismissScheduled = "true";
+  const delay = Number(delayMs) || 0;
+  setTimeout(() => removeNotification(item), delay);
+}
+
+function canAutoDismissNotification(item) {
+  if (!item || item.dataset.autoDismissWhenVisible !== "true") return false;
+  if (!isChatActive) return false;
+  const chatType = item.dataset.chatType;
+  const partner = item.dataset.partner;
+  if (chatType) {
+    if (activeChat.type !== chatType) return false;
+    if (chatType === "direct" && partner && activeChat.partner !== partner) {
+      return false;
+    }
+  }
+  const messageId = item.dataset.messageId;
+  if (messageId && !isMessageVisible(messageId)) return false;
+  return true;
+}
+
+function maybeAutoDismissVisibleNotifications() {
+  if (!notificationStack) return;
+  Array.from(notificationStack.children).forEach((item) => {
+    if (canAutoDismissNotification(item)) {
+      const delay = Number(item.dataset.autoDismissMs) || 3000;
+      scheduleNotificationDismiss(item, delay);
+    }
+  });
+}
+
+function pushChatNotification({
+  title,
+  body,
+  actionLabel = "Перейти",
+  onAction,
+  autoDismissMs = 0,
+  autoDismissWhenVisible = false,
+  messageId = null,
+  chatType = null,
+  partner = null,
+}) {
   if (!notificationStack) return;
   const item = document.createElement("div");
   item.className = "chat-notification";
@@ -582,15 +644,27 @@ function pushChatNotification({ title, body, actionLabel = "Перейти", onA
     }
     removeNotification(item);
   });
+  if (autoDismissWhenVisible) {
+    item.dataset.autoDismissWhenVisible = "true";
+    if (autoDismissMs) {
+      item.dataset.autoDismissMs = String(autoDismissMs);
+    }
+  }
+  if (messageId) item.dataset.messageId = messageId;
+  if (chatType) item.dataset.chatType = chatType;
+  if (partner) item.dataset.partner = partner;
   notificationStack.appendChild(item);
+  maybeAutoDismissVisibleNotifications();
 }
 
-function highlightMessage(messageId) {
+function highlightMessage(messageId, { durationMs = 2000, shouldScroll = true } = {}) {
   const messageEl = messageElementMap.get(messageId);
   if (!messageEl) return false;
-  messageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (shouldScroll) {
+    messageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
   messageEl.classList.add("message-highlight");
-  setTimeout(() => messageEl.classList.remove("message-highlight"), 2000);
+  setTimeout(() => messageEl.classList.remove("message-highlight"), durationMs);
   return true;
 }
 
@@ -1402,9 +1476,11 @@ if (messagesList) {
     closeReactionPicker();
     if (isMessagesNearBottom()) {
       clearUnreadMessages();
+      maybeAutoDismissVisibleNotifications();
       return;
     }
     updateUnreadOnScroll();
+    maybeAutoDismissVisibleNotifications();
   });
 }
 
@@ -1750,6 +1826,7 @@ function setActiveChat(type, partner = null) {
   if (typeof renderUserList === "function") {
     renderUserList();
   }
+  maybeAutoDismissVisibleNotifications();
 }
 
 function getStickerPayload(text) {
@@ -1835,6 +1912,7 @@ function appendMessageElement(messageEl, { countUnread }) {
   } else if (countUnread) {
     registerUnreadMessage(messageEl);
   }
+  maybeAutoDismissVisibleNotifications();
 }
 
 function buildSystemMessageElement(payload) {
@@ -2168,6 +2246,18 @@ function renderMessage({
   if (!silent && !local && login !== currentLogin) {
     playNotification(chatType);
   }
+
+  const shouldHighlightForRecipient =
+    !silent &&
+    !local &&
+    login !== currentLogin &&
+    ((mentionTo && mentionTo === currentLogin) ||
+      (replyTo?.login && replyTo.login === currentLogin));
+  if (shouldHighlightForRecipient) {
+    requestAnimationFrame(() => {
+      highlightMessage(resolvedMessageId, { shouldScroll: false, durationMs: 2500 });
+    });
+  }
 }
 
 
@@ -2196,7 +2286,7 @@ loginForm.addEventListener("submit", (e) => {
   loginScreen.classList.add("hidden");
   chatScreen.classList.remove("hidden");
   messageInput.focus();
-  isChatActive = true;
+  setChatActivity(!document.hidden);
   setActiveChat("public");
 });
 
@@ -2340,6 +2430,12 @@ document.addEventListener("keydown", (event) => {
   messageInput.focus();
 });
 
+window.addEventListener("focus", () => setChatActivity(true));
+window.addEventListener("blur", () => setChatActivity(false));
+document.addEventListener("visibilitychange", () => {
+  setChatActivity(!document.hidden);
+});
+
 socket.on("history", (items) => {
   publicHistory.length = 0;
   if (!Array.isArray(items)) return;
@@ -2414,6 +2510,10 @@ socket.on("chatMessage", (payload) => {
       body: `${login} написал(а) сообщение для вас.`,
       actionLabel: "Перейти к сообщению",
       onAction: () => jumpToMessage(messageId, "public"),
+      autoDismissMs: 3000,
+      autoDismissWhenVisible: true,
+      messageId,
+      chatType: "public",
     });
     if (activeChat.type !== "public") {
       playNotification("public");
@@ -2431,6 +2531,10 @@ socket.on("chatMessage", (payload) => {
       body: `${login} ответил(а) на ваше сообщение.`,
       actionLabel: replyTo.messageId ? "Показать цитату" : "Перейти к сообщению",
       onAction: () => jumpToMessage(targetMessageId, "public"),
+      autoDismissMs: 3000,
+      autoDismissWhenVisible: true,
+      messageId,
+      chatType: "public",
     });
   }
 });

@@ -935,7 +935,7 @@ body {
 .chat-notification.is-leaving {
   opacity: 0;
   transform: translateY(-6px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.4s ease, transform 0.4s ease;
 }
 
 .chat-notification__content {
@@ -1899,6 +1899,14 @@ body {
 
 .reply-block .reply-snippet {
   color: var(--text-soft);
+}
+
+.message.message-highlight {
+  background: rgba(56, 189, 248, 0.12);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 0 0 1px rgba(56, 189, 248, 0.25),
+    0 0 18px rgba(56, 189, 248, 0.28);
 }
 
 .message-highlight .message-bubble {
