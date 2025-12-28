@@ -663,9 +663,14 @@ function highlightMessage(messageId, { durationMs = 2000, shouldScroll = true } 
   if (shouldScroll) {
     messageEl.scrollIntoView({ behavior: "smooth", block: "center" });
   }
+  highlightMessageRow(messageEl, durationMs);
+  return true;
+}
+
+function highlightMessageRow(messageEl, durationMs = 2000) {
+  if (!messageEl) return;
   messageEl.classList.add("message-highlight");
   setTimeout(() => messageEl.classList.remove("message-highlight"), durationMs);
-  return true;
 }
 
 function jumpToMessage(messageId, chatType = "public", partner = null) {
@@ -1968,6 +1973,7 @@ function renderMessage({
   local,
   silent,
   replyTo,
+  mentionTo,
   attachments,
   avatar,
   avatarId,
@@ -2251,11 +2257,11 @@ function renderMessage({
     !silent &&
     !local &&
     login !== currentLogin &&
-    ((mentionTo && mentionTo === currentLogin) ||
-      (replyTo?.login && replyTo.login === currentLogin));
+    ((mentionTo && isSameLogin(mentionTo, currentLogin)) ||
+      (replyTo?.login && isSameLogin(replyTo.login, currentLogin)));
   if (shouldHighlightForRecipient) {
     requestAnimationFrame(() => {
-      highlightMessage(resolvedMessageId, { shouldScroll: false, durationMs: 2500 });
+      highlightMessageRow(li, 3500);
     });
   }
 }
@@ -2504,7 +2510,7 @@ socket.on("chatMessage", (payload) => {
     renderMessage(entry);
   }
 
-  if (login !== currentLogin && mentionTo && mentionTo === currentLogin) {
+  if (login !== currentLogin && mentionTo && isSameLogin(mentionTo, currentLogin)) {
     pushChatNotification({
       title: "Вас выбрали в общем чате",
       body: `${login} написал(а) сообщение для вас.`,
@@ -2523,7 +2529,7 @@ socket.on("chatMessage", (payload) => {
   if (
     login !== currentLogin &&
     replyTo?.login &&
-    replyTo.login === currentLogin
+    isSameLogin(replyTo.login, currentLogin)
   ) {
     const targetMessageId = replyTo.messageId || messageId;
     pushChatNotification({
@@ -2607,6 +2613,10 @@ socket.on("userList", (users) => {
 
 function normalizeUserName(user) {
   return typeof user === "string" ? user : user?.login;
+}
+
+function isSameLogin(a, b) {
+  return String(a || "").toLowerCase() === String(b || "").toLowerCase();
 }
 
 function getOnlineUser(name) {
