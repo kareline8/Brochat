@@ -102,6 +102,7 @@ const readMessageIds = new Set();
 let messageIdCounter = 0;
 let activeReactionTarget = null;
 const recipientHighlightQueue = new Map();
+const recipientHighlightDone = new Set();
 
 const socket = io();
 
@@ -185,8 +186,10 @@ let currentLogin = null;
 let currentColor = null;
 let currentAvatarId = null;
 let currentAvatar = null;
+let currentAvatarOriginal = null;
 let selectedAvatarId = avatarCatalog[0]?.id || null;
 let customAvatar = null;
+let customAvatarOriginal = null;
 let isPublicMuted = false;
 let isPrivateMuted = false;
 let audioCtx = null;
@@ -499,7 +502,7 @@ function closeProfileCard() {
   }
 }
 
-function openProfileCard({ name, color, avatarUrl }) {
+function openProfileCard({ name, color, avatarUrl, avatarOriginal }) {
   if (!profileModal || !name || name === currentLogin) return;
   closeProfileAvatarView();
   profileModal.dataset.login = name;
@@ -507,8 +510,9 @@ function openProfileCard({ name, color, avatarUrl }) {
 
   if (profileAvatar) {
     const resolvedAvatar = avatarUrl || getAvatarForLogin(name);
+    const resolvedAvatarOriginal = avatarOriginal || resolvedAvatar;
     profileAvatar.src = resolvedAvatar;
-    profileAvatar.dataset.full = resolvedAvatar;
+    profileAvatar.dataset.full = resolvedAvatarOriginal;
     profileAvatar.style.setProperty("--profile-accent", color || "var(--accent)");
   }
   if (profileName) {
@@ -732,28 +736,49 @@ function highlightMessageRow(messageEl, durationMs = 2000) {
 
 function scheduleRecipientHighlight(messageId, messageEl, highlightColor) {
   if (!messageId || !messageEl) return;
-  if (recipientHighlightQueue.has(messageId)) return;
+  if (recipientHighlightDone.has(messageId)) return;
+  const existing = recipientHighlightQueue.get(messageId);
+  if (existing && existing.messageEl?.isConnected) return;
   recipientHighlightQueue.set(messageId, {
     messageEl,
     highlightColor,
     timeoutId: null,
+    ready: false,
+    visibleAt: null,
   });
   processRecipientHighlights();
 }
 
 function processRecipientHighlights() {
   recipientHighlightQueue.forEach((entry, messageId) => {
+    const { messageEl, highlightColor, ready } = entry;
+    if (!messageEl || !messageEl.isConnected) {
+      recipientHighlightQueue.delete(messageId);
+      return;
+    }
+    if (ready) {
+      if (isMessageVisible(messageId)) {
+        messageEl.style.setProperty(
+          "--highlight-bg",
+          hexToRgba(highlightColor, 0.18)
+        );
+        messageEl.style.setProperty(
+          "--highlight-border",
+          hexToRgba(highlightColor, 0.35)
+        );
+        highlightMessageRow(messageEl, 3500);
+        recipientHighlightQueue.delete(messageId);
+        recipientHighlightDone.add(messageId);
+      }
+      return;
+    }
     if (entry.timeoutId) return;
     if (!isMessageVisible(messageId)) return;
-    const { messageEl, highlightColor } = entry;
-    messageEl.style.setProperty("--highlight-bg", hexToRgba(highlightColor, 0.18));
-    messageEl.style.setProperty(
-      "--highlight-border",
-      hexToRgba(highlightColor, 0.35)
-    );
+    entry.visibleAt = Date.now();
     entry.timeoutId = setTimeout(() => {
-      highlightMessageRow(messageEl, 3500);
-      recipientHighlightQueue.delete(messageId);
+      entry.ready = true;
+      entry.timeoutId = null;
+      processRecipientHighlights();
     }, 10000);
   });
 }
@@ -983,6 +1008,7 @@ function applyAvatarCrop() {
 
 function clearCustomAvatar() {
   customAvatar = null;
+  customAvatarOriginal = null;
   closeAvatarCropper();
   if (avatarUploadPreview) {
     avatarUploadPreview.src = "";
@@ -1029,6 +1055,7 @@ if (avatarUploadInput) {
     reader.onload = () => {
       const result = reader.result;
       if (typeof result === "string") {
+        customAvatarOriginal = result;
         openAvatarCropper(result);
       }
     };
@@ -1600,6 +1627,16 @@ if (messagesList) {
   });
 
   messagesList.addEventListener("click", (event) => {
+    const authorButton = event.target.closest(".author.is-clickable");
+    if (authorButton && messagesList.contains(authorButton)) {
+      event.stopPropagation();
+      const login = authorButton.dataset.login;
+      if (login) {
+        setActiveChat("public");
+        queuePublicMention(login);
+      }
+      return;
+    }
     if (event.target === messagesList) {
       mentionTarget = null;
     }
@@ -2253,7 +2290,9 @@ function renderMessage({
     <img class="message-avatar" src="${avatarUrl}" alt="${escapeHtml(login)}" />
     <div class="message-bubble">
       <div class="meta">
-        <span class="author">${escapeHtml(login)}</span>
+        <button type="button" class="author" data-login="${escapeHtml(login)}">${escapeHtml(
+          login
+        )}</button>
       </div>
       ${replyHtml}
       <div class="message-body">
@@ -2313,11 +2352,8 @@ function renderMessage({
     authorEl.style.color = baseColor;
     if (login && login !== currentLogin) {
       authorEl.classList.add("is-clickable");
-      authorEl.addEventListener("click", (event) => {
-        event.stopPropagation();
-        setActiveChat("public");
-        queuePublicMention(login);
-      });
+    } else {
+      authorEl.disabled = true;
     }
   }
 
@@ -2424,6 +2460,7 @@ loginForm.addEventListener("submit", (e) => {
   currentLogin = value;
   currentColor = (colorInput && colorInput.value) || "#38bdf8";
   currentAvatar = customAvatar;
+  currentAvatarOriginal = customAvatarOriginal || customAvatar;
   currentAvatarId = customAvatar ? null : selectedAvatarId || avatarCatalog[0]?.id || null;
 
   socket.emit("join", {
@@ -2431,6 +2468,7 @@ loginForm.addEventListener("submit", (e) => {
     color: currentColor,
     avatarId: currentAvatarId,
     avatar: currentAvatar,
+    avatarOriginal: currentAvatarOriginal,
   });
 
   if (botsEnabled) {
@@ -2496,6 +2534,7 @@ messageForm.addEventListener("submit", async (e) => {
     color: currentColor || "#38bdf8",
     avatarId: currentAvatarId,
     avatar: currentAvatar,
+    avatarOriginal: currentAvatarOriginal,
     text,
     timestamp: ts,
     local: true,
@@ -2604,6 +2643,7 @@ socket.on("history", (items) => {
       timestamp: msg.timestamp,
       avatar: msg.avatar,
       avatarId: msg.avatarId,
+      avatarOriginal: msg.avatarOriginal,
       attachments: msg.attachments || [],
       replyTo: msg.replyTo || null,
       mentionTo: msg.mentionTo || null,
@@ -2630,6 +2670,7 @@ socket.on("chatMessage", (payload) => {
     attachments,
     avatar,
     avatarId,
+    avatarOriginal,
     messageId,
     readAll,
     mentionTo,
@@ -2645,6 +2686,7 @@ socket.on("chatMessage", (payload) => {
     timestamp,
     avatar,
     avatarId,
+    avatarOriginal,
     attachments: attachments || [],
     replyTo: replyTo || null,
     mentionTo: mentionTo || null,
@@ -2703,6 +2745,7 @@ socket.on("directMessage", (payload) => {
     attachments,
     avatar,
     avatarId,
+    avatarOriginal,
     messageId,
     to,
   } = payload || {};
@@ -2720,6 +2763,7 @@ socket.on("directMessage", (payload) => {
     timestamp,
     avatar,
     avatarId,
+    avatarOriginal,
     attachments: attachments || [],
     replyTo: replyTo || null,
     readAll: false,
@@ -2776,7 +2820,14 @@ function getEntryTimestamp(entry) {
   return Number.isFinite(value) ? value : 0;
 }
 
-function resolveUserVisuals({ name, user, fallbackColor, fallbackAvatar, fallbackAvatarId }) {
+function resolveUserVisuals({
+  name,
+  user,
+  fallbackColor,
+  fallbackAvatar,
+  fallbackAvatarId,
+  fallbackAvatarOriginal,
+}) {
   const color =
     (user && user.color) || fallbackColor || getColorForLogin(name);
   const avatarUrl =
@@ -2784,7 +2835,9 @@ function resolveUserVisuals({ name, user, fallbackColor, fallbackAvatar, fallbac
     (user && user.avatar) ||
     getAvatarById(fallbackAvatarId || (user && user.avatarId)) ||
     getAvatarForLogin(name);
-  return { color, avatarUrl };
+  const avatarOriginal =
+    fallbackAvatarOriginal || (user && user.avatarOriginal) || avatarUrl;
+  return { color, avatarUrl, avatarOriginal };
 }
 
 function createUserListItem({
@@ -2850,12 +2903,13 @@ function renderSelfUser() {
   if (!currentLogin) return;
 
   const user = getOnlineUser(currentLogin);
-  const { color, avatarUrl } = resolveUserVisuals({
+  const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
     name: currentLogin,
     user,
     fallbackColor: currentColor,
     fallbackAvatar: currentAvatar,
     fallbackAvatarId: currentAvatarId,
+    fallbackAvatarOriginal: currentAvatarOriginal,
   });
 
   const li = createUserListItem({
@@ -2886,13 +2940,14 @@ function renderDirectList(onlineLogins) {
       const history = getDirectHistory(partner);
       const lastEntry = history[history.length - 1] || null;
       const onlineUser = getOnlineUser(partner);
-      const { color, avatarUrl } = resolveUserVisuals({
-        name: partner,
-        user: onlineUser,
-        fallbackColor: lastEntry?.color,
-        fallbackAvatar: lastEntry?.avatar,
-        fallbackAvatarId: lastEntry?.avatarId,
-      });
+  const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
+    name: partner,
+    user: onlineUser,
+    fallbackColor: lastEntry?.color,
+    fallbackAvatar: lastEntry?.avatar,
+    fallbackAvatarId: lastEntry?.avatarId,
+    fallbackAvatarOriginal: lastEntry?.avatarOriginal,
+  });
       return {
         partner,
         color,
@@ -2938,7 +2993,7 @@ function renderOnlineList() {
 
   onlineUsers.forEach((user) => {
     const name = user.login;
-    const { color, avatarUrl } = resolveUserVisuals({ name, user });
+      const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({ name, user });
     const li = createUserListItem({
       name,
       color,
@@ -2946,7 +3001,7 @@ function renderOnlineList() {
       isClickable: true,
     });
     li.addEventListener("click", () => {
-      openProfileCard({ name, color, avatarUrl });
+      openProfileCard({ name, color, avatarUrl, avatarOriginal });
     });
     usersList.appendChild(li);
   });
@@ -2980,7 +3035,7 @@ function renderOnlineList() {
       li.style.boxShadow = `0 0 0 1px ${hexToRgba(baseColor, 0.2)}`;
 
       li.addEventListener("click", () => {
-        openProfileCard({ name, color: baseColor, avatarUrl });
+        openProfileCard({ name, color: baseColor, avatarUrl, avatarOriginal: avatarUrl });
       });
 
       usersList.appendChild(li);
