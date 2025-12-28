@@ -1042,9 +1042,9 @@ body {
 .profile-card {
   background: rgba(15, 23, 42, 0.96);
   border: 1px solid rgba(56, 189, 248, 0.4);
-  border-radius: 20px;
-  padding: 22px;
-  width: min(320px, 90vw);
+  border-radius: 28px;
+  padding: 40px;
+  width: min(960px, 95vw);
   text-align: center;
   position: relative;
   box-shadow:
@@ -1065,47 +1065,110 @@ body {
 }
 
 .profile-avatar {
-  width: 120px;
-  height: 120px;
+  width: 240px;
+  height: 240px;
   border-radius: 50%;
   border: 3px solid var(--profile-accent, rgba(56, 189, 248, 0.7));
   box-shadow:
     0 0 16px rgba(56, 189, 248, 0.4),
     0 0 28px rgba(15, 23, 42, 0.8);
   margin-bottom: 14px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.profile-avatar:hover {
+  transform: scale(1.02);
+  box-shadow:
+    0 0 20px rgba(56, 189, 248, 0.5),
+    0 0 36px rgba(15, 23, 42, 0.9);
 }
 
 .profile-name {
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
 }
 
 .profile-actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .profile-action {
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: linear-gradient(
+    135deg,
+    rgba(56, 189, 248, 0.25),
+    rgba(168, 85, 247, 0.2)
+  );
   color: var(--text);
-  padding: 10px 12px;
+  padding: 16px 18px;
   border-radius: 999px;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 16px;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  box-shadow:
+    0 0 18px rgba(56, 189, 248, 0.25),
+    0 0 28px rgba(168, 85, 247, 0.2);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .profile-action--primary {
   border-color: rgba(56, 189, 248, 0.7);
-  background: rgba(56, 189, 248, 0.2);
+  background: linear-gradient(
+    135deg,
+    rgba(56, 189, 248, 0.4),
+    rgba(168, 85, 247, 0.3)
+  );
+  box-shadow:
+    0 0 22px rgba(56, 189, 248, 0.35),
+    0 0 32px rgba(168, 85, 247, 0.25);
 }
 
 .profile-action:hover {
-  border-color: rgba(56, 189, 248, 0.8);
-  background: rgba(56, 189, 248, 0.25);
+  transform: translateY(-2px);
+  border-color: rgba(56, 189, 248, 0.85);
+  box-shadow:
+    0 0 26px rgba(56, 189, 248, 0.4),
+    0 0 36px rgba(168, 85, 247, 0.3);
+}
+
+.profile-avatar-view {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 22, 0.95);
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.profile-avatar-view.hidden {
+  display: none;
+}
+
+.profile-avatar-view img {
+  max-width: 85%;
+  max-height: 85%;
+  border-radius: 24px;
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.8),
+    0 0 28px rgba(56, 189, 248, 0.3);
+}
+
+.profile-avatar-view .profile-avatar-view-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  border: none;
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 10px;
+  cursor: pointer;
 }
 
 /* Audio player */
@@ -1250,6 +1313,15 @@ body {
 .message .author {
   font-weight: 600;
   color: var(--accent);
+}
+
+.message .author.is-clickable {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.message .author.is-clickable:hover {
+  text-decoration: underline;
 }
 
 .message .text {
