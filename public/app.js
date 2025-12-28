@@ -1747,15 +1747,17 @@ function renderMessage({
         <span class="author">${escapeHtml(login)}</span>
       </div>
       ${replyHtml}
-      <div class="text">${
-        sticker
-          ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
-              sticker.label
-            )}" /></div>`
-          : formatMessageText(text)
-      }</div>
+      <div class="message-body">
+        <div class="text">${
+          sticker
+            ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
+                sticker.label
+              )}" /></div>`
+            : formatMessageText(text)
+        }</div>
+        ${statusHtml}
+      </div>
       ${attachmentsHtml}
-      ${statusHtml}
       <div class="message-reactions" aria-label="Реакции"></div>
       <button type="button" class="reaction-trigger" title="Поставить реакцию">😊</button>
     </div>
