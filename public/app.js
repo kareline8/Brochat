@@ -171,7 +171,8 @@ let currentAvatarId = null;
 let currentAvatar = null;
 let selectedAvatarId = avatarCatalog[0]?.id || null;
 let customAvatar = null;
-let isMuted = false;
+let isPublicMuted = false;
+let isPrivateMuted = false;
 let audioCtx = null;
 
 // по умолчанию боты включены только если режим разрешён
@@ -1234,31 +1235,75 @@ document.addEventListener("click", (event) => {
 });
 
 // --- звук уведомлений ---
-function playNotification() {
-  if (isMuted) return;
+const MUTE_PUBLIC_KEY = "minichat_muted_public";
+const MUTE_PRIVATE_KEY = "minichat_muted_private";
+const MUTE_LEGACY_KEY = "minichat_muted";
+
+function isChatMuted(chatType) {
+  return chatType === "direct" ? isPrivateMuted : isPublicMuted;
+}
+
+function updateMuteToggle() {
+  if (!muteToggle) return;
+  const isDirect = activeChat.type === "direct";
+  const isCurrentMuted = isDirect ? isPrivateMuted : isPublicMuted;
+  const isEverywhereMuted = isPublicMuted && isPrivateMuted;
+  let title = "";
+
+  if (isEverywhereMuted) {
+    title = "Звук отключен везде";
+  } else if (isDirect) {
+    title = isPrivateMuted ? "Звук ЛС выключен" : "Звук ЛС включен";
+    if (isPublicMuted) {
+      title += " (общий чат выключен)";
+    }
+  } else {
+    title = isPublicMuted ? "Звук общего чата выключен" : "Звук общего чата включен";
+    if (isPrivateMuted) {
+      title += " (ЛС выключены)";
+    }
+  }
+
+  muteToggle.textContent = isCurrentMuted ? "🔕" : "🔔";
+  muteToggle.classList.toggle("muted", isCurrentMuted || isEverywhereMuted);
+  muteToggle.title = title;
+}
+
+// --- звук уведомлений ---
+function playNotification(chatType = "public") {
+  if (isChatMuted(chatType)) return;
 
   try {
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 
-    const duration = 0.16;
     const now = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
 
-    osc.type = "triangle";
-    osc.frequency.setValueAtTime(920, now);
-    osc.frequency.linearRampToValueAtTime(680, now + duration);
+    const scheduleTone = (start, startFreq, endFreq, duration, peak = 0.18) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
 
-    gain.gain.setValueAtTime(0.0, now);
-    gain.gain.linearRampToValueAtTime(0.18, now + 0.03);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(startFreq, start);
+      osc.frequency.linearRampToValueAtTime(endFreq, start + duration);
 
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start(now);
-    osc.stop(now + duration);
+      gain.gain.setValueAtTime(0.0, start);
+      gain.gain.linearRampToValueAtTime(peak, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(start);
+      osc.stop(start + duration);
+    };
+
+    if (chatType === "direct") {
+      scheduleTone(now, 980, 760, 0.12, 0.2);
+      scheduleTone(now + 0.16, 1220, 920, 0.12, 0.18);
+    } else {
+      scheduleTone(now, 920, 680, 0.16, 0.18);
+    }
   } catch (e) {
     // молча игнорируем
   }
@@ -1266,18 +1311,33 @@ function playNotification() {
 
 // --- инициализация mute-кнопки ---
 if (muteToggle) {
-  const saved = localStorage.getItem("minichat_muted");
-  if (saved === "1") {
-    isMuted = true;
-    muteToggle.classList.add("muted");
-    muteToggle.textContent = "🔕";
+  const legacy = localStorage.getItem(MUTE_LEGACY_KEY);
+  const savedPublic = localStorage.getItem(MUTE_PUBLIC_KEY);
+  const savedPrivate = localStorage.getItem(MUTE_PRIVATE_KEY);
+
+  if (savedPublic === "1") {
+    isPublicMuted = true;
+  }
+  if (savedPrivate === "1") {
+    isPrivateMuted = true;
+  }
+  if (legacy === "1" && savedPublic === null && savedPrivate === null) {
+    isPublicMuted = true;
+    isPrivateMuted = true;
   }
 
+  updateMuteToggle();
+
   muteToggle.addEventListener("click", () => {
-    isMuted = !isMuted;
-    muteToggle.classList.toggle("muted", isMuted);
-    muteToggle.textContent = isMuted ? "🔕" : "🔔";
-    localStorage.setItem("minichat_muted", isMuted ? "1" : "0");
+    if (activeChat.type === "direct") {
+      isPrivateMuted = !isPrivateMuted;
+      localStorage.setItem(MUTE_PRIVATE_KEY, isPrivateMuted ? "1" : "0");
+    } else {
+      isPublicMuted = !isPublicMuted;
+      localStorage.setItem(MUTE_PUBLIC_KEY, isPublicMuted ? "1" : "0");
+    }
+    localStorage.setItem(MUTE_LEGACY_KEY, "0");
+    updateMuteToggle();
   });
 }
 
@@ -1427,6 +1487,7 @@ function renderActiveChat() {
     }
     renderMessage({
       ...item,
+      chatType: item.chatType || activeChat.type,
       local: Boolean(item.local),
       silent: true,
     });
@@ -1441,6 +1502,7 @@ function setActiveChat(type, partner = null) {
     clearDirectUnread(partner);
   }
   updateChatHeader();
+  updateMuteToggle();
   closeDmPopup();
   hideReplyPreview();
   renderActiveChat();
@@ -1592,6 +1654,7 @@ function renderMessage({
   avatarId,
   messageId,
   readAll,
+  chatType = "public",
 }) {
   const li = document.createElement("li");
   li.classList.add("message");
@@ -1848,7 +1911,7 @@ function renderMessage({
   appendMessageElement(li, { countUnread: !local && !silent });
 
   if (!silent && !local && login !== currentLogin) {
-    playNotification();
+    playNotification(chatType);
   }
 }
 
@@ -1933,6 +1996,7 @@ messageForm.addEventListener("submit", async (e) => {
     attachments: uploadedAttachments,
     messageId,
     readAll: false,
+    chatType: isDirectChat ? "direct" : "public",
   };
 
   if (isDirectChat && directPartner) {
@@ -2028,6 +2092,7 @@ socket.on("history", (items) => {
       replyTo: msg.replyTo || null,
       readAll: Boolean(msg.readAll),
       local: false,
+      chatType: "public",
     });
   });
 
@@ -2066,6 +2131,7 @@ socket.on("chatMessage", (payload) => {
     replyTo: replyTo || null,
     readAll: Boolean(readAll),
     local: false,
+    chatType: "public",
   };
   publicHistory.push(entry);
 
@@ -2105,6 +2171,7 @@ socket.on("directMessage", (payload) => {
     replyTo: replyTo || null,
     readAll: false,
     local: false,
+    chatType: "direct",
   };
 
   getDirectHistory(partner).push(entry);
