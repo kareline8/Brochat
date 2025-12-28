@@ -252,6 +252,12 @@ function generateMessageId() {
   return `msg-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
 }
 
+function getSocketIdsByLogin(login) {
+  return Array.from(users.entries())
+    .filter(([, user]) => user.login === login)
+    .map(([socketId]) => socketId);
+}
+
 function markHistoryReadAll(messageId) {
   const item = history.find((entry) => entry.messageId === messageId);
   if (item) {
@@ -465,6 +471,76 @@ io.on("connection", (socket) => {
     notifyReadAll(messageId);
   }
 });
+
+  socket.on("directMessage", (data) => {
+    const user = users.get(socket.id) || { login: "Гость", color: null };
+
+    let msgText = "";
+    let replyTo = null;
+    let attachments = [];
+    let messageId = "";
+    let to = "";
+
+    if (typeof data === "string") {
+      msgText = data;
+    } else if (data && typeof data === "object") {
+      msgText = data.text;
+      if (data.messageId) {
+        messageId = String(data.messageId);
+      }
+      if (data.to) {
+        to = String(data.to).trim();
+      }
+      if (Array.isArray(data.attachments)) {
+        attachments = data.attachments
+          .filter((item) => item && typeof item === "object")
+          .map((item) => ({
+            name: String(item.name || "").slice(0, 120),
+            url: String(item.url || ""),
+            type: String(item.type || ""),
+            size: Number(item.size || 0),
+          }))
+          .filter((item) => item.url && item.name);
+      }
+      if (data.replyTo && typeof data.replyTo === "object") {
+        replyTo = {
+          login: String(data.replyTo.login || "").slice(0, 20),
+          text: truncateText(data.replyTo.text || "", 300),
+        };
+      }
+    } else {
+      return;
+    }
+
+    const msg = String(msgText || "").trim();
+    if (!to) return;
+    if (!msg && attachments.length === 0) return;
+
+    if (!messageId) {
+      messageId = generateMessageId();
+    }
+
+    const payload = {
+      messageId,
+      login: user.login,
+      color: user.color,
+      avatarId: user.avatarId,
+      avatar: user.avatar,
+      text: msg,
+      replyTo,
+      attachments,
+      timestamp: new Date().toISOString(),
+      to,
+    };
+
+    const targetIds = new Set([
+      ...getSocketIdsByLogin(user.login),
+      ...getSocketIdsByLogin(to),
+    ]);
+    targetIds.forEach((socketId) => {
+      io.to(socketId).emit("directMessage", payload);
+    });
+  });
 
   socket.on("messageRead", (payload) => {
     const user = users.get(socket.id);

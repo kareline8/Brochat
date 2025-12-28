@@ -133,6 +133,9 @@ const messageInput = document.getElementById("message-input");
 const messagesList = document.getElementById("messages");
 const usersList = document.getElementById("users-list");
 const chatStatus = document.getElementById("chat-status");
+const chatTitleText = document.getElementById("chat-title-text");
+const chatContext = document.getElementById("chat-context");
+const backToPublic = document.getElementById("back-to-public");
 const muteToggle = document.getElementById("mute-toggle");
 const zoomRange = document.getElementById("zoom-range");
 const zoomLabel = document.querySelector(".zoom-label");
@@ -180,6 +183,11 @@ let attachmentPreviewUrls = [];
 let isChatActive = false;
 let unreadMessages = [];
 let firstUnreadMessage = null;
+let activeChat = { type: "public", partner: null };
+
+const publicHistory = [];
+const directHistories = new Map();
+const directUnreadCounts = new Map();
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -349,6 +357,29 @@ function createReactionPicker() {
 
 const reactionPicker = createReactionPicker();
 
+function createDmPopup() {
+  const popup = document.createElement("div");
+  popup.className = "dm-popup hidden";
+  popup.innerHTML = `
+    <div class="dm-title"></div>
+    <button type="button" class="dm-action">Личное сообщение</button>
+  `;
+  const actionButton = popup.querySelector(".dm-action");
+  if (actionButton) {
+    actionButton.addEventListener("click", () => {
+      const login = popup.dataset.login;
+      closeDmPopup();
+      if (login) {
+        setActiveChat("direct", login);
+      }
+    });
+  }
+  document.body.appendChild(popup);
+  return popup;
+}
+
+const dmPopup = createDmPopup();
+
 function openReactionPicker(messageId, anchorEl) {
   if (!reactionPicker || !anchorEl) return;
   activeReactionTarget = { messageId, anchorEl };
@@ -374,9 +405,42 @@ function closeReactionPicker() {
   activeReactionTarget = null;
 }
 
+function openDmPopup(login, anchorEl) {
+  if (!dmPopup || !anchorEl || !login || login === currentLogin) return;
+  const title = dmPopup.querySelector(".dm-title");
+  if (title) {
+    title.textContent = login;
+  }
+  dmPopup.dataset.login = login;
+  dmPopup.classList.remove("hidden");
+
+  const rect = anchorEl.getBoundingClientRect();
+  const popupRect = dmPopup.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - popupRect.width / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - popupRect.width - 8));
+  let top = rect.bottom + 10;
+  if (top + popupRect.height > window.innerHeight - 8) {
+    top = rect.top - popupRect.height - 10;
+  }
+  dmPopup.style.left = `${left}px`;
+  dmPopup.style.top = `${top}px`;
+}
+
+function closeDmPopup() {
+  if (!dmPopup) return;
+  dmPopup.classList.add("hidden");
+  dmPopup.dataset.login = "";
+}
+
 if (replyCancelBtn) {
   replyCancelBtn.addEventListener("click", () => {
     hideReplyPreview();
+  });
+}
+
+if (backToPublic) {
+  backToPublic.addEventListener("click", () => {
+    setActiveChat("public");
   });
 }
 
@@ -390,9 +454,15 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  if (dmPopup && !dmPopup.classList.contains("hidden")) {
+    if (!dmPopup.contains(event.target)) {
+      closeDmPopup();
+    }
+  }
   if (!replyTarget) return;
   if (event.target.closest(".message-bubble")) return;
   if (reactionPicker && reactionPicker.contains(event.target)) return;
+  if (dmPopup && dmPopup.contains(event.target)) return;
   if (event.target.closest(".message-form")) return;
   if (replyPreview && replyPreview.contains(event.target)) return;
   hideReplyPreview();
@@ -1054,6 +1124,9 @@ document.addEventListener("keydown", (event) => {
   if (emojiPanel && !emojiPanel.classList.contains("hidden")) {
     hideEmojiPanel();
   }
+  if (dmPopup && !dmPopup.classList.contains("hidden")) {
+    closeDmPopup();
+  }
 });
 
 async function uploadAttachments(files) {
@@ -1298,6 +1371,84 @@ function truncateText(text, limit) {
   return `${chars.slice(0, limit).join("")}…`;
 }
 
+function formatUnreadCount(count) {
+  if (!count) return "";
+  return count > 9 ? "9+" : String(count);
+}
+
+function getDirectHistory(partner) {
+  if (!directHistories.has(partner)) {
+    directHistories.set(partner, []);
+  }
+  return directHistories.get(partner);
+}
+
+function updateChatHeader() {
+  if (!chatTitleText || !chatContext || !backToPublic) return;
+  if (activeChat.type === "direct" && activeChat.partner) {
+    chatTitleText.textContent = "Личное сообщение";
+    chatContext.textContent = `с ${activeChat.partner}`;
+    chatContext.classList.remove("hidden");
+    backToPublic.classList.remove("hidden");
+  } else {
+    chatTitleText.textContent = "БРО ЧАТ";
+    chatContext.textContent = "";
+    chatContext.classList.add("hidden");
+    backToPublic.classList.add("hidden");
+  }
+}
+
+function clearDirectUnread(partner) {
+  if (!partner) return;
+  directUnreadCounts.delete(partner);
+}
+
+function registerDirectUnread(partner) {
+  if (!partner) return;
+  const next = (directUnreadCounts.get(partner) || 0) + 1;
+  directUnreadCounts.set(partner, next);
+}
+
+function renderActiveChat() {
+  if (!messagesList) return;
+  messagesList.innerHTML = "";
+  messageElements.clear();
+  clearUnreadMessages();
+  const items =
+    activeChat.type === "direct" && activeChat.partner
+      ? getDirectHistory(activeChat.partner)
+      : publicHistory;
+  items.forEach((item) => {
+    if (item.system) {
+      appendMessageElement(buildSystemMessageElement(item.payload), {
+        countUnread: false,
+      });
+      return;
+    }
+    renderMessage({
+      ...item,
+      local: Boolean(item.local),
+      silent: true,
+    });
+  });
+  scrollMessagesToBottom();
+}
+
+function setActiveChat(type, partner = null) {
+  const nextType = type === "direct" ? "direct" : "public";
+  activeChat = { type: nextType, partner: nextType === "direct" ? partner : null };
+  if (nextType === "direct" && partner) {
+    clearDirectUnread(partner);
+  }
+  updateChatHeader();
+  closeDmPopup();
+  hideReplyPreview();
+  renderActiveChat();
+  if (typeof renderUserList === "function") {
+    renderUserList();
+  }
+}
+
 function getStickerPayload(text) {
   const trimmed = String(text || "").trim();
   const match = trimmed.match(/^\[\[sticker:([a-z0-9_-]+)\]\]$/i);
@@ -1381,6 +1532,51 @@ function appendMessageElement(messageEl, { countUnread }) {
   } else if (countUnread) {
     registerUnreadMessage(messageEl);
   }
+}
+
+function buildSystemMessageElement(payload) {
+  const li = document.createElement("li");
+  li.classList.add("message", "system");
+
+  let text = "";
+  let login = null;
+  let color = null;
+  let kind = null;
+
+  if (typeof payload === "string") {
+    text = payload;
+  } else if (payload && typeof payload === "object") {
+    text = payload.text || "";
+    login = payload.login || null;
+    color = payload.color || null;
+    kind = payload.kind || null;
+  } else {
+    text = String(payload ?? "");
+  }
+
+  if (kind === "join" || kind === "leave" || kind === "welcome") {
+    li.classList.add("system-join-leave");
+  }
+
+  if (login && color && typeof text === "string" && text.startsWith(login)) {
+    const restText = text.slice(login.length);
+
+    const nickSpan = document.createElement("span");
+    nickSpan.classList.add("system-nick");
+    nickSpan.textContent = login;
+    nickSpan.style.color = color;
+
+    const restSpan = document.createElement("span");
+    restSpan.classList.add("system-rest");
+    restSpan.textContent = restText;
+
+    li.appendChild(nickSpan);
+    li.appendChild(restSpan);
+  } else {
+    li.textContent = text;
+  }
+
+  return li;
 }
 
 function renderMessage({
@@ -1610,6 +1806,13 @@ function renderMessage({
   if (avatarEl) {
     avatarEl.style.setProperty("--avatar-border", baseColor);
     avatarEl.style.setProperty("--avatar-glow", hexToRgba(baseColor, 0.45));
+    if (login !== currentLogin) {
+      avatarEl.classList.add("is-clickable");
+      avatarEl.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openDmPopup(login, avatarEl);
+      });
+    }
   }
 
   // клик по сообщению — выбрать его как цель для ответа
@@ -1674,6 +1877,7 @@ loginForm.addEventListener("submit", (e) => {
   chatScreen.classList.remove("hidden");
   messageInput.focus();
   isChatActive = true;
+  setActiveChat("public");
 });
 
 
@@ -1710,6 +1914,9 @@ messageForm.addEventListener("submit", async (e) => {
 
   const ts = new Date().toISOString();
   const messageId = `msg-${Date.now()}-${messageIdCounter++}`;
+  const isDirectChat =
+    activeChat.type === "direct" && activeChat.partner && activeChat.partner !== currentLogin;
+  const directPartner = isDirectChat ? activeChat.partner : null;
 
   // локально показываем сразу, с учётом reply
   const localPayload = {
@@ -1726,15 +1933,31 @@ messageForm.addEventListener("submit", async (e) => {
     readAll: false,
   };
 
+  if (isDirectChat && directPartner) {
+    getDirectHistory(directPartner).push(localPayload);
+  } else {
+    publicHistory.push(localPayload);
+  }
+
   renderMessage(localPayload);
 
   // на сервер отправляем объект, а не голую строку
-  socket.emit("chatMessage", {
-    messageId,
-    text,
-    replyTo: replyTarget ? { ...replyTarget } : null,
-    attachments: uploadedAttachments,
-  });
+  if (isDirectChat && directPartner) {
+    socket.emit("directMessage", {
+      messageId,
+      text,
+      to: directPartner,
+      replyTo: replyTarget ? { ...replyTarget } : null,
+      attachments: uploadedAttachments,
+    });
+  } else {
+    socket.emit("chatMessage", {
+      messageId,
+      text,
+      replyTo: replyTarget ? { ...replyTarget } : null,
+      attachments: uploadedAttachments,
+    });
+  }
 
   messageInput.value = "";
   autoSizeTextarea(); // вернуть высоту
@@ -1786,13 +2009,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 socket.on("history", (items) => {
-  messagesList.innerHTML = "";
+  publicHistory.length = 0;
   if (!Array.isArray(items)) return;
 
   items.forEach((msg) => {
     if (!botsEnabled && msg.isBot) return;
-
-    renderMessage({
+    publicHistory.push({
       messageId: msg.messageId,
       login: msg.login,
       color: msg.color,
@@ -1804,9 +2026,12 @@ socket.on("history", (items) => {
       replyTo: msg.replyTo || null,
       readAll: Boolean(msg.readAll),
       local: false,
-      silent: true,
     });
   });
+
+  if (activeChat.type === "public") {
+    renderActiveChat();
+  }
 });
 
 
@@ -1827,8 +2052,7 @@ socket.on("chatMessage", (payload) => {
 
   if (login === currentLogin) return;
   if (!botsEnabled && isBot) return;
-
-  renderMessage({
+  const entry = {
     messageId,
     login,
     color,
@@ -1840,7 +2064,55 @@ socket.on("chatMessage", (payload) => {
     replyTo: replyTo || null,
     readAll: Boolean(readAll),
     local: false,
-  });
+  };
+  publicHistory.push(entry);
+
+  if (activeChat.type === "public") {
+    renderMessage(entry);
+  }
+});
+
+socket.on("directMessage", (payload) => {
+  const {
+    login,
+    text,
+    timestamp,
+    color,
+    replyTo,
+    attachments,
+    avatar,
+    avatarId,
+    messageId,
+    to,
+  } = payload || {};
+
+  if (!login || login === currentLogin) return;
+  if (to && to !== currentLogin) return;
+  const partner = login === currentLogin ? to : login;
+  if (!partner) return;
+
+  const entry = {
+    messageId,
+    login,
+    color,
+    text,
+    timestamp,
+    avatar,
+    avatarId,
+    attachments: attachments || [],
+    replyTo: replyTo || null,
+    readAll: false,
+    local: false,
+  };
+
+  getDirectHistory(partner).push(entry);
+
+  if (activeChat.type === "direct" && activeChat.partner === partner) {
+    renderMessage(entry);
+  } else {
+    registerDirectUnread(partner);
+    renderUserList();
+  }
 });
 
 socket.on("messageReadAll", (payload) => {
@@ -1853,48 +2125,10 @@ socket.on("messageReadAll", (payload) => {
 
 
 socket.on("systemMessage", (payload) => {
-  const li = document.createElement("li");
-  li.classList.add("message", "system");
-
-  let text = "";
-  let login = null;
-  let color = null;
-  let kind = null;
-
-  if (typeof payload === "string") {
-    text = payload;
-  } else if (payload && typeof payload === "object") {
-    text = payload.text || "";
-    login = payload.login || null;
-    color = payload.color || null;
-    kind = payload.kind || null;
-  } else {
-    text = String(payload ?? "");
+  publicHistory.push({ system: true, payload });
+  if (activeChat.type === "public") {
+    appendMessageElement(buildSystemMessageElement(payload), { countUnread: false });
   }
-
-  if (kind === "join" || kind === "leave" || kind === "welcome") {
-    li.classList.add("system-join-leave");
-  }
-
-  // если есть логин и цвет — красим ник
-  if (login && color && typeof text === "string" && text.startsWith(login)) {
-    const restText = text.slice(login.length);
-
-    const nickSpan = document.createElement("span");
-    nickSpan.classList.add("system-nick");
-    nickSpan.textContent = login;
-    nickSpan.style.color = color;
-
-    const restSpan = document.createElement("span");
-    restSpan.classList.add("system-rest");
-    restSpan.textContent = restText;
-
-    li.appendChild(nickSpan);
-    li.appendChild(restSpan);
-  } else {
-    li.textContent = text;
-  }
-  appendMessageElement(li, { countUnread: false });
 });
 
 socket.on("userList", (users) => {
@@ -1932,6 +2166,21 @@ function renderUserList() {
 
     li.appendChild(avatar);
     li.appendChild(label);
+
+    const unreadCount = directUnreadCounts.get(name) || 0;
+    if (unreadCount > 0 && name !== currentLogin) {
+      const unread = document.createElement("span");
+      unread.className = "user-unread";
+      unread.textContent = formatUnreadCount(unreadCount);
+      li.appendChild(unread);
+    }
+
+    if (name !== currentLogin) {
+      li.classList.add("is-clickable");
+      li.addEventListener("click", () => {
+        setActiveChat("direct", name);
+      });
+    }
 
     li.style.borderColor = hexToRgba(baseColor, 0.7);
     li.style.color = baseColor;
