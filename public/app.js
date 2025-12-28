@@ -739,47 +739,29 @@ function scheduleRecipientHighlight(messageId, messageEl, highlightColor) {
   if (recipientHighlightDone.has(messageId)) return;
   const existing = recipientHighlightQueue.get(messageId);
   if (existing && existing.messageEl?.isConnected) return;
-  recipientHighlightQueue.set(messageId, {
-    messageEl,
-    highlightColor,
-    timeoutId: null,
-    ready: false,
-    visibleAt: null,
-  });
+  recipientHighlightQueue.set(messageId, { messageEl, highlightColor });
   processRecipientHighlights();
 }
 
 function processRecipientHighlights() {
   recipientHighlightQueue.forEach((entry, messageId) => {
-    const { messageEl, highlightColor, ready } = entry;
+    const { messageEl, highlightColor } = entry;
     if (!messageEl || !messageEl.isConnected) {
       recipientHighlightQueue.delete(messageId);
       return;
     }
-    if (ready) {
-      if (isMessageVisible(messageId)) {
-        messageEl.style.setProperty(
-          "--highlight-bg",
-          hexToRgba(highlightColor, 0.18)
-        );
-        messageEl.style.setProperty(
-          "--highlight-border",
-          hexToRgba(highlightColor, 0.35)
-        );
-        highlightMessageRow(messageEl, 3500);
-        recipientHighlightQueue.delete(messageId);
-        recipientHighlightDone.add(messageId);
-      }
-      return;
-    }
-    if (entry.timeoutId) return;
     if (!isMessageVisible(messageId)) return;
-    entry.visibleAt = Date.now();
-    entry.timeoutId = setTimeout(() => {
-      entry.ready = true;
-      entry.timeoutId = null;
-      processRecipientHighlights();
-    }, 10000);
+    messageEl.style.setProperty(
+      "--highlight-bg",
+      hexToRgba(highlightColor, 0.18)
+    );
+    messageEl.style.setProperty(
+      "--highlight-border",
+      hexToRgba(highlightColor, 0.35)
+    );
+    recipientHighlightQueue.delete(messageId);
+    recipientHighlightDone.add(messageId);
+    highlightMessageRow(messageEl, 10000);
   });
 }
 
@@ -1627,16 +1609,6 @@ if (messagesList) {
   });
 
   messagesList.addEventListener("click", (event) => {
-    const authorButton = event.target.closest(".author.is-clickable");
-    if (authorButton && messagesList.contains(authorButton)) {
-      event.stopPropagation();
-      const login = authorButton.dataset.login;
-      if (login) {
-        setActiveChat("public");
-        queuePublicMention(login);
-      }
-      return;
-    }
     if (event.target === messagesList) {
       mentionTarget = null;
     }
@@ -2352,6 +2324,10 @@ function renderMessage({
     authorEl.style.color = baseColor;
     if (login && login !== currentLogin) {
       authorEl.classList.add("is-clickable");
+      authorEl.addEventListener("click", (event) => {
+        event.stopPropagation();
+        queuePublicMention(login);
+      });
     } else {
       authorEl.disabled = true;
     }
