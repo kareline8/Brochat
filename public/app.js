@@ -132,6 +132,8 @@ const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
 const messagesList = document.getElementById("messages");
 const usersList = document.getElementById("users-list");
+const selfList = document.getElementById("self-user");
+const directList = document.getElementById("direct-list");
 const chatStatus = document.getElementById("chat-status");
 const chatTitleText = document.getElementById("chat-title-text");
 const chatContext = document.getElementById("chat-context");
@@ -2206,56 +2208,191 @@ socket.on("userList", (users) => {
   renderUserList();
 });
 
-function renderUserList() {
-  if (!usersList) return;
+function normalizeUserName(user) {
+  return typeof user === "string" ? user : user?.login;
+}
 
+function getOnlineUser(name) {
+  return lastUserList.find((user) => normalizeUserName(user) === name) || null;
+}
+
+function getEntryTimestamp(entry) {
+  const value = entry?.timestamp ? Date.parse(entry.timestamp) : 0;
+  return Number.isFinite(value) ? value : 0;
+}
+
+function resolveUserVisuals({ name, user, fallbackColor, fallbackAvatar, fallbackAvatarId }) {
+  const color =
+    (user && user.color) || fallbackColor || getColorForLogin(name);
+  const avatarUrl =
+    fallbackAvatar ||
+    (user && user.avatar) ||
+    getAvatarById(fallbackAvatarId || (user && user.avatarId)) ||
+    getAvatarForLogin(name);
+  return { color, avatarUrl };
+}
+
+function createUserListItem({
+  name,
+  color,
+  avatarUrl,
+  unreadCount = 0,
+  isClickable = false,
+  isActive = false,
+  isSelf = false,
+  isOnline = null,
+}) {
+  const li = document.createElement("li");
+  if (isClickable) li.classList.add("is-clickable");
+  if (isActive) li.classList.add("is-active");
+  if (isSelf) li.classList.add("is-self");
+
+  const avatar = document.createElement("img");
+  avatar.className = "user-avatar";
+  avatar.src = avatarUrl;
+  avatar.alt = name;
+  avatar.style.setProperty("--avatar-border", color);
+  avatar.style.setProperty("--avatar-glow", hexToRgba(color, 0.35));
+
+  const label = document.createElement("span");
+  label.className = "user-name";
+  label.textContent = name;
+
+  li.appendChild(avatar);
+  li.appendChild(label);
+
+  if (isSelf) {
+    const tag = document.createElement("span");
+    tag.className = "user-tag";
+    tag.textContent = "Вы";
+    li.appendChild(tag);
+  }
+
+  if (typeof isOnline === "boolean") {
+    const status = document.createElement("span");
+    status.className = `user-status ${isOnline ? "is-online" : "is-offline"}`;
+    status.title = isOnline ? "Онлайн" : "Офлайн";
+    li.appendChild(status);
+  }
+
+  if (unreadCount > 0) {
+    const unread = document.createElement("span");
+    unread.className = "user-unread";
+    unread.textContent = formatUnreadCount(unreadCount);
+    li.appendChild(unread);
+  }
+
+  li.style.borderColor = hexToRgba(color, 0.7);
+  li.style.color = color;
+  li.style.boxShadow = `0 0 0 1px ${hexToRgba(color, 0.3)}`;
+
+  return li;
+}
+
+function renderSelfUser() {
+  if (!selfList) return;
+  selfList.innerHTML = "";
+  if (!currentLogin) return;
+
+  const user = getOnlineUser(currentLogin);
+  const { color, avatarUrl } = resolveUserVisuals({
+    name: currentLogin,
+    user,
+    fallbackColor: currentColor,
+    fallbackAvatar: currentAvatar,
+    fallbackAvatarId: currentAvatarId,
+  });
+
+  const li = createUserListItem({
+    name: currentLogin,
+    color,
+    avatarUrl,
+    isSelf: true,
+  });
+
+  selfList.appendChild(li);
+}
+
+function renderDirectList(onlineLogins) {
+  if (!directList) return;
+  directList.innerHTML = "";
+
+  const partners = new Set([
+    ...directHistories.keys(),
+    ...directUnreadCounts.keys(),
+  ]);
+  if (activeChat.type === "direct" && activeChat.partner) {
+    partners.add(activeChat.partner);
+  }
+  partners.delete(currentLogin);
+
+  const items = Array.from(partners)
+    .map((partner) => {
+      const history = getDirectHistory(partner);
+      const lastEntry = history[history.length - 1] || null;
+      const onlineUser = getOnlineUser(partner);
+      const { color, avatarUrl } = resolveUserVisuals({
+        name: partner,
+        user: onlineUser,
+        fallbackColor: lastEntry?.color,
+        fallbackAvatar: lastEntry?.avatar,
+        fallbackAvatarId: lastEntry?.avatarId,
+      });
+      return {
+        partner,
+        color,
+        avatarUrl,
+        lastTimestamp: lastEntry ? getEntryTimestamp(lastEntry) : 0,
+      };
+    })
+    .sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+
+  if (items.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "users-empty";
+    empty.textContent = "Пока нет диалогов";
+    directList.appendChild(empty);
+    return;
+  }
+
+  items.forEach((item) => {
+    const unreadCount = directUnreadCounts.get(item.partner) || 0;
+    const li = createUserListItem({
+      name: item.partner,
+      color: item.color,
+      avatarUrl: item.avatarUrl,
+      unreadCount,
+      isClickable: true,
+      isActive: activeChat.type === "direct" && activeChat.partner === item.partner,
+      isOnline: onlineLogins.has(item.partner),
+    });
+    li.addEventListener("click", () => {
+      setActiveChat("direct", item.partner);
+    });
+    directList.appendChild(li);
+  });
+}
+
+function renderOnlineList() {
+  if (!usersList) return;
   usersList.innerHTML = "";
 
-  // реальные пользователи от сервера
-  lastUserList.forEach((u) => {
-    const name = typeof u === "string" ? u : u.login;
-    const userColor =
-      typeof u === "string" || !u.color ? getColorForLogin(name) : u.color;
-    const avatarUrl =
-      typeof u === "string"
-        ? getAvatarForLogin(name)
-        : u.avatar || getAvatarById(u.avatarId) || getAvatarForLogin(name);
-    const baseColor = userColor;
+  const onlineUsers = lastUserList
+    .map((user) => (typeof user === "string" ? { login: user } : user))
+    .filter((user) => user?.login && user.login !== currentLogin);
 
-    const li = document.createElement("li");
-    const avatar = document.createElement("img");
-    avatar.className = "user-avatar";
-    avatar.src = avatarUrl;
-    avatar.alt = name;
-    avatar.style.setProperty("--avatar-border", baseColor);
-    avatar.style.setProperty("--avatar-glow", hexToRgba(baseColor, 0.35));
-
-    const label = document.createElement("span");
-    label.className = "user-name";
-    label.textContent = name;
-
-    li.appendChild(avatar);
-    li.appendChild(label);
-
-    const unreadCount = directUnreadCounts.get(name) || 0;
-    if (unreadCount > 0 && name !== currentLogin) {
-      const unread = document.createElement("span");
-      unread.className = "user-unread";
-      unread.textContent = formatUnreadCount(unreadCount);
-      li.appendChild(unread);
-    }
-
-    if (name !== currentLogin) {
-      li.classList.add("is-clickable");
-      li.addEventListener("click", () => {
-        setActiveChat("direct", name);
-      });
-    }
-
-    li.style.borderColor = hexToRgba(baseColor, 0.7);
-    li.style.color = baseColor;
-    li.style.boxShadow = `0 0 0 1px ${hexToRgba(baseColor, 0.3)}`;
-
+  onlineUsers.forEach((user) => {
+    const name = user.login;
+    const { color, avatarUrl } = resolveUserVisuals({ name, user });
+    const li = createUserListItem({
+      name,
+      color,
+      avatarUrl,
+      isClickable: true,
+    });
+    li.addEventListener("click", () => {
+      setActiveChat("direct", name);
+    });
     usersList.appendChild(li);
   });
 
@@ -2290,6 +2427,18 @@ function renderUserList() {
       usersList.appendChild(li);
     });
   }
+}
+
+function renderUserList() {
+  const onlineLogins = new Set(
+    lastUserList
+      .map((user) => normalizeUserName(user))
+      .filter(Boolean)
+  );
+
+  renderSelfUser();
+  renderDirectList(onlineLogins);
+  renderOnlineList();
 }
 
 

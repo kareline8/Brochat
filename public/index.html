@@ -78,14 +78,26 @@
 
       <div id="chat-screen" class="panel chat-panel hidden">
         <aside class="sidebar">
-          <h2>Онлайн</h2>
+          <section class="sidebar-section">
+            <h2>Вы</h2>
+            <ul id="self-user" class="users-list users-list--compact"></ul>
+          </section>
 
-          <label class="bots-toggle">
-            <input type="checkbox" id="bots-toggle" checked />
-            <span>Тестовые боты (нагрузочный режим)</span>
-          </label>
+          <section class="sidebar-section">
+            <h2>Диалоги</h2>
+            <ul id="direct-list" class="users-list users-list--compact"></ul>
+          </section>
 
-          <ul id="users-list" class="users-list"></ul>
+          <section class="sidebar-section sidebar-section--stretch">
+            <h2>Онлайн</h2>
+
+            <label class="bots-toggle">
+              <input type="checkbox" id="bots-toggle" checked />
+              <span>Тестовые боты (нагрузочный режим)</span>
+            </label>
+
+            <ul id="users-list" class="users-list users-list--stretch"></ul>
+          </section>
         </aside>
 
         <main class="chat">
