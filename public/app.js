@@ -261,8 +261,12 @@ let cropDragState = null;
 
 function showReplyPreview() {
   if (!replyPreview || !replyAuthorEl || !replyTextEl || !replyTarget) return;
+  const replyColor =
+    replyTarget.color || getColorForLogin(replyTarget.login || "guest");
   replyAuthorEl.textContent = replyTarget.login;
   replyTextEl.textContent = truncateText(replyTarget.text, 120);
+  replyPreview.style.setProperty("--reply-accent", replyColor);
+  replyAuthorEl.style.color = replyColor;
   replyPreview.classList.remove("hidden");
 }
 
@@ -383,15 +387,27 @@ function createDmPopup() {
   popup.className = "dm-popup hidden";
   popup.innerHTML = `
     <div class="dm-title"></div>
-    <button type="button" class="dm-action">Личное сообщение</button>
+    <button type="button" class="dm-action dm-action--private">Личное сообщение</button>
+    <button type="button" class="dm-action dm-action--public">Публичное сообщение</button>
   `;
-  const actionButton = popup.querySelector(".dm-action");
+  const actionButton = popup.querySelector(".dm-action--private");
   if (actionButton) {
     actionButton.addEventListener("click", () => {
       const login = popup.dataset.login;
       closeDmPopup();
       if (login) {
         setActiveChat("direct", login);
+      }
+    });
+  }
+  const publicButton = popup.querySelector(".dm-action--public");
+  if (publicButton) {
+    publicButton.addEventListener("click", () => {
+      const login = popup.dataset.login;
+      closeDmPopup();
+      if (login) {
+        setActiveChat("public");
+        queuePublicMention(login);
       }
     });
   }
@@ -507,6 +523,20 @@ function queuePublicMention(login) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getLeadingMention(text, mentionTo) {
+  if (!text || !mentionTo) return null;
+  const pattern = new RegExp(
+    `^(@?${escapeRegExp(mentionTo)})(?=[\\s,.:!?]|$)`,
+    "i"
+  );
+  const match = String(text).match(pattern);
+  if (!match) return null;
+  return {
+    mentionText: match[1],
+    remainder: text.slice(match[1].length),
+  };
 }
 
 function detectMentionTarget(text) {
@@ -1463,7 +1493,14 @@ async function uploadAttachments(files) {
 }
 
 if (messageInput) {
-  messageInput.addEventListener("input", autoSizeTextarea);
+  messageInput.addEventListener("input", () => {
+    autoSizeTextarea();
+    if (!mentionTarget) return;
+    const detected = detectMentionTarget(messageInput.value);
+    if (!detected || !isSameLogin(detected, mentionTarget)) {
+      mentionTarget = null;
+    }
+  });
   autoSizeTextarea();
 
   messageInput.addEventListener("keydown", (e) => {
@@ -1486,6 +1523,12 @@ if (messagesList) {
     }
     updateUnreadOnScroll();
     maybeAutoDismissVisibleNotifications();
+  });
+
+  messagesList.addEventListener("click", (event) => {
+    if (event.target === messagesList) {
+      mentionTarget = null;
+    }
   });
 }
 
@@ -2144,7 +2187,7 @@ function renderMessage({
             ? `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
                 sticker.label
               )}" /></div>`
-            : formatMessageText(text)
+            : formatMessageText(text, { mentionTo })
         }</div>
         ${statusHtml}
       </div>
@@ -2208,6 +2251,28 @@ function renderMessage({
     }
   }
 
+  const replyBlock = li.querySelector(".reply-block");
+  if (replyBlock && replyTo?.login) {
+    const replyColor =
+      replyTo.color || getColorForLogin(replyTo.login || "guest");
+    replyBlock.style.setProperty("--reply-accent", replyColor);
+    const replyAuthor = replyBlock.querySelector(".reply-author");
+    if (replyAuthor) {
+      replyAuthor.style.color = replyColor;
+    }
+  }
+
+  const mentionChip = li.querySelector(".mention-chip");
+  if (mentionChip && mentionTo) {
+    const mentionColor = getColorForLogin(mentionTo);
+    mentionChip.style.setProperty("--mention-color", mentionColor);
+    mentionChip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setActiveChat("public");
+      queuePublicMention(mentionTo);
+    });
+  }
+
   // клик по сообщению — выбрать его как цель для ответа
   if (bubbleEl) {
     bubbleEl.addEventListener("click", (event) => {
@@ -2216,12 +2281,12 @@ function renderMessage({
         login,
         text: String(text || ""),
         messageId: resolvedMessageId,
+        color: baseColor,
       };
       showReplyPreview();
     });
   }
 
-  const replyBlock = li.querySelector(".reply-block");
   if (replyBlock && replyTo?.messageId) {
     replyBlock.classList.add("is-clickable");
     replyBlock.addEventListener("click", (event) => {
@@ -2261,6 +2326,10 @@ function renderMessage({
       (replyTo?.login && isSameLogin(replyTo.login, currentLogin)));
   if (shouldHighlightForRecipient) {
     requestAnimationFrame(() => {
+      const highlightColor =
+        currentColor || getColorForLogin(currentLogin || "guest");
+      li.style.setProperty("--highlight-bg", hexToRgba(highlightColor, 0.18));
+      li.style.setProperty("--highlight-border", hexToRgba(highlightColor, 0.35));
       highlightMessageRow(li, 3500);
     });
   }
@@ -2899,6 +2968,17 @@ function wrapEmojisInHtml(html) {
     .join("");
 }
 
-function formatMessageText(text) {
-  return wrapEmojisInHtml(linkify(text));
+function formatMessageText(text, { mentionTo } = {}) {
+  if (!mentionTo) {
+    return wrapEmojisInHtml(linkify(text));
+  }
+  const mentionMatch = getLeadingMention(text, mentionTo);
+  if (!mentionMatch) {
+    return wrapEmojisInHtml(linkify(text));
+  }
+  const mentionHtml = `<button type="button" class="mention-chip" data-mention="${escapeHtml(
+    mentionTo
+  )}">${escapeHtml(mentionMatch.mentionText)}</button>`;
+  const remainderHtml = wrapEmojisInHtml(linkify(mentionMatch.remainder));
+  return `${mentionHtml}${remainderHtml}`;
 }

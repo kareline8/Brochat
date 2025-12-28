@@ -455,6 +455,7 @@ io.on("connection", (socket) => {
       replyTo = {
         login: String(data.replyTo.login || "").slice(0, 20),
         text: truncateText(data.replyTo.text || "", 300),
+        color: data.replyTo.color ? String(data.replyTo.color).slice(0, 20) : "",
         messageId: data.replyTo.messageId
           ? String(data.replyTo.messageId).slice(0, 80)
           : "",
@@ -542,6 +543,7 @@ io.on("connection", (socket) => {
         replyTo = {
           login: String(data.replyTo.login || "").slice(0, 20),
           text: truncateText(data.replyTo.text || "", 300),
+          color: data.replyTo.color ? String(data.replyTo.color).slice(0, 20) : "",
           messageId: data.replyTo.messageId
             ? String(data.replyTo.messageId).slice(0, 80)
             : "",
