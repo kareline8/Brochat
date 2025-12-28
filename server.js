@@ -407,6 +407,7 @@ io.on("connection", (socket) => {
   let replyTo = null;
   let attachments = [];
   let messageId = "";
+  let mentionTo = "";
 
   if (typeof data === "string") {
     msgText = data;
@@ -430,7 +431,13 @@ io.on("connection", (socket) => {
       replyTo = {
         login: String(data.replyTo.login || "").slice(0, 20),
         text: truncateText(data.replyTo.text || "", 300),
+        messageId: data.replyTo.messageId
+          ? String(data.replyTo.messageId).slice(0, 80)
+          : "",
       };
+    }
+    if (data.mentionTo) {
+      mentionTo = String(data.mentionTo).slice(0, 20);
     }
   } else {
     return;
@@ -454,6 +461,7 @@ io.on("connection", (socket) => {
     attachments,
     timestamp: new Date().toISOString(),
     readAll: false,
+    mentionTo: mentionTo || null,
   };
 
   history.push(payload);
@@ -506,6 +514,9 @@ io.on("connection", (socket) => {
         replyTo = {
           login: String(data.replyTo.login || "").slice(0, 20),
           text: truncateText(data.replyTo.text || "", 300),
+          messageId: data.replyTo.messageId
+            ? String(data.replyTo.messageId).slice(0, 80)
+            : "",
         };
       }
     } else {

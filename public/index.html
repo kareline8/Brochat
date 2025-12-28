@@ -96,6 +96,14 @@
               <span>Тестовые боты (нагрузочный режим)</span>
             </label>
 
+            <button
+              id="public-chat-shortcut"
+              class="public-chat-shortcut hidden"
+              type="button"
+            >
+              Общий чат
+            </button>
+
             <ul id="users-list" class="users-list users-list--stretch"></ul>
           </section>
         </aside>
@@ -176,6 +184,7 @@
 
           <ul id="messages" class="messages"></ul>
           <button id="unread-indicator" class="unread-indicator hidden" type="button"></button>
+          <div id="chat-notifications" class="chat-notifications"></div>
 
           <!-- превью ответа (reply), как в телеграм -->
           <div id="reply-preview" class="reply-preview hidden">
@@ -250,6 +259,24 @@
 </div>
 
         </main>
+      </div>
+    </div>
+
+    <div id="profile-modal" class="profile-modal hidden" role="dialog" aria-modal="true">
+      <div class="profile-card">
+        <button type="button" id="profile-close" class="profile-close" aria-label="Закрыть карточку">
+          ✕
+        </button>
+        <img id="profile-avatar" class="profile-avatar" alt="Аватар пользователя" />
+        <div id="profile-name" class="profile-name"></div>
+        <div class="profile-actions">
+          <button type="button" id="profile-private" class="profile-action profile-action--primary">
+            Написать в приват
+          </button>
+          <button type="button" id="profile-public" class="profile-action">
+            Написать в общий чат
+          </button>
+        </div>
       </div>
     </div>
 
