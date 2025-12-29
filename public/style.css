@@ -471,6 +471,9 @@ body {
   gap: 12px;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.6) transparent;
 
   background:
     radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 55%),
@@ -527,7 +530,7 @@ body {
 
 .users-list {
   list-style: none;
-  padding: 10px 8px;
+  padding: 10px 12px 10px 8px;
   margin: 4px 0 0;
   display: flex;
   flex-direction: column;
@@ -536,6 +539,9 @@ body {
   font-weight: 600;
   color: var(--text-soft);
   overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.6) transparent;
 
   /* более яркий, контрастный фон под список ников */
   background:
@@ -604,7 +610,7 @@ body {
 }
 
 .users-list--compact {
-  padding: 8px;
+  padding: 8px 12px 8px 8px;
   gap: 6px;
 }
 
@@ -1234,6 +1240,9 @@ body {
   padding: 16px 18px;
   margin: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.6) transparent;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1274,6 +1283,22 @@ body {
 }
 
 .messages::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+}
+
+.sidebar::-webkit-scrollbar,
+.users-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track,
+.users-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.users-list::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.4);
   border-radius: 999px;
 }
