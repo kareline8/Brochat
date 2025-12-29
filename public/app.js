@@ -732,6 +732,7 @@ function highlightMessage(messageId, { durationMs = 2000, shouldScroll = true } 
 const highlightFadeTimers = new WeakMap();
 const highlightHoverHandlers = new WeakMap();
 const HIGHLIGHT_FADE_MS = 600;
+const HOVER_DISMISS_DELAY_MS = 3000;
 
 function clearHighlightTimer(messageEl) {
   const existingTimer = highlightFadeTimers.get(messageEl);
@@ -761,7 +762,13 @@ function fadeOutHighlight(messageEl) {
 function attachHoverDismiss(messageEl) {
   if (!messageEl) return;
   if (highlightHoverHandlers.has(messageEl)) return;
-  const handler = () => fadeOutHighlight(messageEl);
+  const handler = () => {
+    clearHighlightTimer(messageEl);
+    const timer = setTimeout(() => {
+      fadeOutHighlight(messageEl);
+    }, HOVER_DISMISS_DELAY_MS);
+    highlightFadeTimers.set(messageEl, timer);
+  };
   highlightHoverHandlers.set(messageEl, handler);
   messageEl.addEventListener("mouseenter", handler, { once: true });
 }
@@ -784,10 +791,12 @@ function highlightMessageRow(
     }
   }
   const dismissDelay =
-    typeof autoDismissMs === "number" && autoDismissMs > 0
+    typeof autoDismissMs === "number"
       ? autoDismissMs
-      : durationMs;
-  if (dismissDelay > 0) {
+      : typeof durationMs === "number"
+        ? durationMs
+        : null;
+  if (dismissDelay && dismissDelay > 0) {
     const timer = setTimeout(() => fadeOutHighlight(messageEl), dismissDelay);
     highlightFadeTimers.set(messageEl, timer);
   }
@@ -821,7 +830,7 @@ function processRecipientHighlights() {
     recipientHighlightQueue.delete(messageId);
     recipientHighlightDone.add(messageId);
     highlightMessageRow(messageEl, {
-      autoDismissMs: 60000,
+      autoDismissMs: 0,
       dismissOnHover: true,
     });
   });
