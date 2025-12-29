@@ -2639,6 +2639,7 @@ messageForm.addEventListener("submit", async (e) => {
     hideReplyPreview();
   }
   mentionTarget = null;
+  hideEmojiPanel();
 });
 
 
