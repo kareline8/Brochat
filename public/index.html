@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>БРО ЧАТ</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="style.css?v=20260322_1304" />
+  <link rel="stylesheet" href="style.css?v=20260322_1326" />
   </head>
   <body>
     <div class="app">
@@ -487,6 +487,11 @@
   ></textarea>
   <button type="submit" class="send-button" title="Отправить">➤</button>
 </form>
+<div
+  id="composer-link-preview"
+  class="composer-link-preview hidden"
+  aria-live="polite"
+></div>
 <div id="emoji-panel" class="emoji-panel hidden" aria-label="Панель эмодзи">
   <div class="emoji-panel-header">
     <button type="button" class="emoji-tab active" data-tab="emoji">Эмодзи</button>
@@ -736,7 +741,61 @@
         </div>
       </div>
 
+      <div
+        id="message-delete-confirm-modal"
+        class="profile-modal delete-confirm-modal hidden"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="profile-card delete-confirm-card">
+          <div class="delete-confirm-title">Удалить?</div>
+          <div class="delete-confirm-actions">
+            <button
+              type="button"
+              id="message-delete-confirm-cancel"
+              class="delete-confirm-btn delete-confirm-btn--cancel"
+            >
+              Нет
+            </button>
+            <button
+              type="button"
+              id="message-delete-confirm-accept"
+              class="delete-confirm-btn delete-confirm-btn--danger"
+            >
+              Да
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="member-delete-confirm-modal"
+        class="profile-modal delete-confirm-modal hidden"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="profile-card delete-confirm-card">
+          <div class="delete-confirm-title">Точно удалить участника?</div>
+          <div class="delete-confirm-actions">
+            <button
+              type="button"
+              id="member-delete-confirm-cancel"
+              class="delete-confirm-btn delete-confirm-btn--cancel"
+            >
+              Нет
+            </button>
+            <button
+              type="button"
+              id="member-delete-confirm-accept"
+              class="delete-confirm-btn delete-confirm-btn--danger"
+            >
+              Да
+            </button>
+          </div>
+        </div>
+      </div>
+
 	    <script src="/socket.io/socket.io.js"></script>
-  <script src="app.js?v=20260322_1304"></script>
+  <script src="app.js?v=20260323_0022"></script>
   </body>
 </html>

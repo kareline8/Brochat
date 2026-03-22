@@ -142,6 +142,8 @@ const messageElementMap = new Map();
 const readMessageIds = new Set();
 let messageIdCounter = 0;
 let activeReactionTarget = null;
+let messageDeleteConfirmResolver = null;
+let memberDeleteConfirmResolver = null;
 const recipientHighlightQueue = new Map();
 const recipientHighlightDone = new Set();
 
@@ -243,6 +245,7 @@ const stickerGrid = document.getElementById("sticker-grid");
 const attachmentInput = document.getElementById("attachment-input");
 const attachmentCount = document.getElementById("attachment-count");
 const attachmentPreview = document.getElementById("attachment-preview");
+const composerLinkPreview = document.getElementById("composer-link-preview");
 const unreadIndicator = document.getElementById("unread-indicator");
 const scrollToLatestButton = document.getElementById("scroll-to-latest");
 const notificationStack = document.getElementById("chat-notifications");
@@ -270,6 +273,12 @@ const chatMembersList = document.getElementById("chat-members-list");
 const participantsModal = document.getElementById("participants-modal");
 const participantsClose = document.getElementById("participants-close");
 const participantsList = document.getElementById("participants-list");
+const messageDeleteConfirmModal = document.getElementById("message-delete-confirm-modal");
+const messageDeleteConfirmCancel = document.getElementById("message-delete-confirm-cancel");
+const messageDeleteConfirmAccept = document.getElementById("message-delete-confirm-accept");
+const memberDeleteConfirmModal = document.getElementById("member-delete-confirm-modal");
+const memberDeleteConfirmCancel = document.getElementById("member-delete-confirm-cancel");
+const memberDeleteConfirmAccept = document.getElementById("member-delete-confirm-accept");
 const selfProfileModal = document.getElementById("self-profile-modal");
 const selfProfileClose = document.getElementById("self-profile-close");
 const selfProfileAvatarPreview = document.getElementById("self-profile-avatar-preview");
@@ -336,6 +345,12 @@ const SIDEBAR_WIDTH_MIN = 360;
 const SIDEBAR_WIDTH_MAX = 760;
 const SIDEBAR_MIN_CHAT_WIDTH = 420;
 const DEFAULT_MESSAGE_PLACEHOLDER = messageInput?.getAttribute("placeholder") || "Напиши сообщение...";
+const COMPOSER_LINK_REGEX =
+  /((https?:\/\/|www\.)[^\s]+|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?)/i;
+const COMPOSER_LINK_PREVIEW_DEBOUNCE_MS = 220;
+const COMPOSER_LINK_PREVIEW_FETCH_TIMEOUT_MS = 3200;
+const COMPOSER_LINK_PREVIEW_CACHE_TTL_MS = 3 * 60 * 1000;
+const COMPOSER_LINK_PREVIEW_MIN_SCORE_TO_CACHE = 4;
 
 let currentLogin = null;
 let currentColor = null;
@@ -363,6 +378,7 @@ let chatFileDragDepth = 0;
 let isChatActive = false;
 let unreadMessages = [];
 let firstUnreadMessage = null;
+let publicUnreadCount = 0;
 let activeChat = { type: "home", partner: null };
 let mentionTarget = null;
 let lastJoinSignature = "";
@@ -401,6 +417,17 @@ const sectionCollapsedState = {
 };
 let currentSidebarWidth = SIDEBAR_WIDTH_MIN;
 let sidebarResizeState = null;
+let composerLinkPreviewTimer = null;
+let composerLinkPreviewRequestId = 0;
+let composerLinkPreviewActiveUrl = "";
+let composerLinkPreviewDisabled = false;
+const composerLinkPreviewCache = new Map();
+let messageLinkPreviewRequestCounter = 0;
+const avatarOriginalCache = new Map();
+const avatarOriginalRequests = new Map();
+let avatarLightboxRequestId = 0;
+let profileAvatarViewRequestId = 0;
+let historyAutoloadBlockedUntil = 0;
 
 function setChatActivity(active) {
   isChatActive = active;
@@ -1136,6 +1163,67 @@ function emitWithAck(eventName, payload, timeoutMs = 12000) {
   });
 }
 
+function getAvatarOriginalCacheKey(login) {
+  return normalizeLoginValue(login).toLowerCase();
+}
+
+function clearAvatarOriginalCache() {
+  avatarOriginalCache.clear();
+  avatarOriginalRequests.clear();
+}
+
+async function fetchAvatarOriginalOnDemand(login) {
+  const normalizedLogin = normalizeLoginValue(login);
+  const key = getAvatarOriginalCacheKey(normalizedLogin);
+  if (!key || !socket?.connected || !currentLogin) return null;
+  const cached = avatarOriginalCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  if (avatarOriginalRequests.has(key)) {
+    return avatarOriginalRequests.get(key);
+  }
+
+  const request = (async () => {
+    try {
+      const response = await emitWithAck(
+        "getUserAvatarOriginal",
+        { login: normalizedLogin },
+        16000
+      );
+      const avatarOriginal =
+        typeof response?.avatarOriginal === "string" && response.avatarOriginal.trim()
+          ? response.avatarOriginal
+          : null;
+      if (response?.ok && avatarOriginal) {
+        avatarOriginalCache.set(key, avatarOriginal);
+      }
+      return avatarOriginal;
+    } catch (error) {
+      return null;
+    } finally {
+      avatarOriginalRequests.delete(key);
+    }
+  })();
+
+  avatarOriginalRequests.set(key, request);
+  return request;
+}
+
+async function openAvatarLightboxByLogin(login, fallbackSrc, alt) {
+  const fallback =
+    typeof fallbackSrc === "string" && fallbackSrc.trim() ? fallbackSrc : null;
+  if (!fallback) return;
+
+  openLightbox(fallback, alt);
+  const requestId = avatarLightboxRequestId;
+  const avatarOriginal = await fetchAvatarOriginalOnDemand(login);
+  if (!avatarOriginal || avatarOriginal === fallback) return;
+  if (!lightbox || !lightboxImage || lightbox.classList.contains("hidden")) return;
+  if (requestId !== avatarLightboxRequestId) return;
+  lightboxImage.src = avatarOriginal;
+}
+
 function applyServerUserToSession(user, { sessionToken = null } = {}) {
   if (sessionToken) {
     currentSessionToken = sessionToken;
@@ -1263,9 +1351,13 @@ function performLogout({ skipServer = false } = {}) {
   directUnreadCounts.clear();
   directHistoryState.clear();
   directDialogVisuals.clear();
+  clearAvatarOriginalCache();
+  avatarLightboxRequestId = 0;
+  profileAvatarViewRequestId = 0;
   hiddenDirectDialogs.clear();
   visibleDirectDialogs.clear();
   directUnreadNoticeShown = false;
+  publicUnreadCount = 0;
   personalNotes = [];
   lastSentMessageAt = 0;
   lastUserList = [];
@@ -1321,6 +1413,8 @@ function performLogout({ skipServer = false } = {}) {
   closeProfileAvatarView();
   closeContactSearchModal();
   closeChatSettingsModal();
+  closeMessageDeleteConfirmModal();
+  closeMemberDeleteConfirmModal();
   hideEmojiPanel();
   closeReactionPicker();
 
@@ -1861,6 +1955,9 @@ function cancelMessageEdit({ clearInput = false } = {}) {
   mentionTarget = null;
   if (clearInput && messageInput) {
     messageInput.value = "";
+    resetComposerLinkPreview();
+  } else {
+    scheduleComposerLinkPreviewUpdate({ immediate: true });
   }
   autoSizeTextarea();
 }
@@ -1998,12 +2095,16 @@ function createDmPopup() {
   `;
   const photoButton = popup.querySelector(".dm-action--photo");
   if (photoButton) {
-    photoButton.addEventListener("click", () => {
+    photoButton.addEventListener("click", async () => {
       const login = popup.dataset.login || "";
       const photo = popup.dataset.photo || "";
       closeDmPopup();
       if (photo) {
-        openLightbox(photo, login ? `Аватар ${login}` : "Фото");
+        if (login) {
+          await openAvatarLightboxByLogin(login, photo, `Аватар ${login}`);
+        } else {
+          openLightbox(photo, "Фото");
+        }
       }
     });
   }
@@ -2186,6 +2287,7 @@ function openProfileCard({ name, color, avatarUrl, avatarOriginal }) {
     const resolvedAvatar = avatarUrl || getAvatarForLogin(name);
     const resolvedAvatarOriginal = avatarOriginal || resolvedAvatar;
     profileAvatar.src = resolvedAvatar;
+    profileAvatar.dataset.login = name;
     profileAvatar.dataset.full = resolvedAvatarOriginal;
     profileAvatar.style.setProperty("--profile-accent", color || "var(--accent)");
   }
@@ -2197,16 +2299,26 @@ function openProfileCard({ name, color, avatarUrl, avatarOriginal }) {
   profileModal.classList.remove("hidden");
 }
 
-function openProfileAvatarView() {
+async function openProfileAvatarView() {
   if (!profileAvatar || !profileAvatarView || !profileAvatarFull) return;
-  const fullSrc = profileAvatar.dataset.full;
-  if (!fullSrc) return;
-  profileAvatarFull.src = fullSrc;
+  const fallbackSrc = profileAvatar.dataset.full || profileAvatar.getAttribute("src");
+  if (!fallbackSrc) return;
+  profileAvatarFull.src = fallbackSrc;
   profileAvatarView.classList.remove("hidden");
+
+  const login = profileModal?.dataset?.login || profileAvatar.dataset.login || "";
+  if (!login) return;
+  const requestId = ++profileAvatarViewRequestId;
+  const avatarOriginal = await fetchAvatarOriginalOnDemand(login);
+  if (!avatarOriginal) return;
+  if (!profileAvatarView || profileAvatarView.classList.contains("hidden")) return;
+  if (requestId !== profileAvatarViewRequestId) return;
+  profileAvatarFull.src = avatarOriginal;
 }
 
 function closeProfileAvatarView() {
   if (!profileAvatarView || !profileAvatarFull) return;
+  profileAvatarViewRequestId += 1;
   profileAvatarView.classList.add("hidden");
   profileAvatarFull.src = "";
 }
@@ -2374,9 +2486,10 @@ function renderContactSearchResults() {
       avatar.classList.add("is-clickable");
       avatar.style.setProperty("--avatar-border", color);
       avatar.style.setProperty("--avatar-glow", hexToRgba(color, 0.35));
-      avatar.addEventListener("click", (event) => {
+      avatar.addEventListener("click", async (event) => {
         event.stopPropagation();
-        openLightbox(avatar.dataset.full || avatar.src, `Аватар ${login}`);
+        const fallbackSrc = avatar.dataset.full || avatar.src;
+        await openAvatarLightboxByLogin(login, fallbackSrc, `Аватар ${login}`);
       });
     }
     const action = li.querySelector(".contact-search-result-action");
@@ -2514,7 +2627,20 @@ function renderChatMembersList(items) {
   if (!chatMembersList) return;
   chatMembersList.innerHTML = "";
   const source = Array.isArray(items) ? items : [];
-  if (source.length === 0) {
+  const sorted = source
+    .map((item) => ({
+      ...item,
+      login: normalizeLoginValue(item?.login),
+    }))
+    .filter((item) => Boolean(item.login))
+    .sort((a, b) => {
+      const aSelf = Boolean(a?.isSelf) || isSameLogin(a?.login, currentLogin);
+      const bSelf = Boolean(b?.isSelf) || isSameLogin(b?.login, currentLogin);
+      if (aSelf !== bSelf) return aSelf ? -1 : 1;
+      return String(a.login).localeCompare(String(b.login), "ru", { sensitivity: "base" });
+    });
+
+  if (sorted.length === 0) {
     const empty = document.createElement("li");
     empty.className = "users-empty";
     empty.textContent = "Список участников пуст";
@@ -2522,9 +2648,8 @@ function renderChatMembersList(items) {
     return;
   }
 
-  source.forEach((item) => {
-    const login = normalizeLoginValue(item?.login);
-    if (!login) return;
+  sorted.forEach((item) => {
+    const login = item.login;
     const onlineUser = getOnlineUser(login);
     const { color, avatarUrl } = resolveUserVisuals({
       name: login,
@@ -2577,7 +2702,7 @@ function renderChatMembersList(items) {
       removeButton.title = "Нельзя исключить самого себя";
     } else {
       removeButton.addEventListener("click", async () => {
-        const confirmed = window.confirm("Точно удалить участника?");
+        const confirmed = await openMemberDeleteConfirmModal();
         if (!confirmed) return;
         const room = getCurrentChatRoom();
         const response = await emitWithAck("removeChatRoomMember", {
@@ -3065,6 +3190,46 @@ if (participantsModal) {
   participantsModal.addEventListener("click", (event) => {
     if (event.target === participantsModal) {
       closeParticipantsModal();
+    }
+  });
+}
+
+if (messageDeleteConfirmCancel) {
+  messageDeleteConfirmCancel.addEventListener("click", () => {
+    closeMessageDeleteConfirmModal({ confirmed: false });
+  });
+}
+
+if (messageDeleteConfirmAccept) {
+  messageDeleteConfirmAccept.addEventListener("click", () => {
+    closeMessageDeleteConfirmModal({ confirmed: true });
+  });
+}
+
+if (messageDeleteConfirmModal) {
+  messageDeleteConfirmModal.addEventListener("click", (event) => {
+    if (event.target === messageDeleteConfirmModal) {
+      closeMessageDeleteConfirmModal({ confirmed: false });
+    }
+  });
+}
+
+if (memberDeleteConfirmCancel) {
+  memberDeleteConfirmCancel.addEventListener("click", () => {
+    closeMemberDeleteConfirmModal({ confirmed: false });
+  });
+}
+
+if (memberDeleteConfirmAccept) {
+  memberDeleteConfirmAccept.addEventListener("click", () => {
+    closeMemberDeleteConfirmModal({ confirmed: true });
+  });
+}
+
+if (memberDeleteConfirmModal) {
+  memberDeleteConfirmModal.addEventListener("click", (event) => {
+    if (event.target === memberDeleteConfirmModal) {
+      closeMemberDeleteConfirmModal({ confirmed: false });
     }
   });
 }
@@ -3958,6 +4123,468 @@ function renderAttachmentPreview(files) {
   attachmentPreview.classList.remove("hidden");
 }
 
+function normalizeComposerPreviewText(value, maxLength = 180) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (!Number.isInteger(maxLength) || maxLength < 4 || normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function normalizeComposerPreviewImageUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return "";
+}
+
+function getPreviewImageProxyUrl(value) {
+  const normalized = normalizeComposerPreviewImageUrl(value);
+  if (!normalized) return "";
+  return `/api/link-preview-image?url=${encodeURIComponent(normalized)}`;
+}
+
+function extractFirstComposerLink(text) {
+  const source = String(text || "");
+  const match = source.match(COMPOSER_LINK_REGEX);
+  if (!match || !match[1]) return null;
+  const rawMatch = String(match[1]).trim();
+  if (!rawMatch) return null;
+  const sanitizedMatch = rawMatch.replace(/[.,!?);:\]]+$/g, "");
+  if (!sanitizedMatch) return null;
+  const href = /^https?:\/\//i.test(sanitizedMatch)
+    ? sanitizedMatch
+    : `http://${sanitizedMatch}`;
+  try {
+    const parsed = new URL(href);
+    if (!/^https?:$/i.test(parsed.protocol)) return null;
+    return parsed.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildComposerLinkFallback(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./i, "") || parsed.host || parsed.hostname;
+    const path = `${parsed.pathname || ""}${parsed.search || ""}`;
+    const normalizedPath = path && path !== "/" ? normalizeComposerPreviewText(path, 90) : "";
+    const imageHost = parsed.hostname || host;
+    return {
+      url: parsed.toString(),
+      siteName: host || "Ссылка",
+      title: host || parsed.toString(),
+      description: normalizedPath || "Открыть ссылку",
+      imageUrl: imageHost
+        ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(imageHost)}&sz=64`
+        : "",
+    };
+  } catch (_) {
+    const safeUrl = String(url || "").trim();
+    return {
+      url: safeUrl,
+      siteName: "Ссылка",
+      title: safeUrl || "Ссылка",
+      description: "Открыть ссылку",
+      imageUrl: "",
+    };
+  }
+}
+
+function mergeComposerLinkPreviewData(fallback, remote) {
+  if (!remote || typeof remote !== "object") return fallback;
+  return {
+    url: String(remote.url || fallback.url || ""),
+    siteName:
+      normalizeComposerPreviewText(remote.siteName || remote.providerName || remote.authorName, 72) ||
+      fallback.siteName,
+    title:
+      normalizeComposerPreviewText(remote.title || remote.siteName || remote.providerName, 120) ||
+      fallback.title,
+    description: normalizeComposerPreviewText(remote.description, 170) || fallback.description,
+    imageUrl: normalizeComposerPreviewImageUrl(remote.imageUrl) || fallback.imageUrl,
+  };
+}
+
+function estimateLinkPreviewQuality(preview) {
+  if (!preview || typeof preview !== "object") return 0;
+  const title = String(preview.title || "").trim();
+  const description = String(preview.description || "").trim();
+  const imageUrl = String(preview.imageUrl || "").trim();
+  let score = 0;
+
+  if (title.length >= 8) {
+    if (/^[a-z0-9.-]+$/i.test(title)) {
+      score += 1;
+    } else {
+      score += 3;
+    }
+  }
+  if (description.length >= 22) {
+    score += 2;
+  } else if (description.length >= 8) {
+    score += 1;
+  }
+  if (imageUrl) {
+    score += /google\.com\/s2\/favicons/i.test(imageUrl) ? 1 : 3;
+  }
+
+  return score;
+}
+
+function renderComposerLinkPreviewCard(data, { loading = false } = {}) {
+  if (!composerLinkPreview) return;
+  composerLinkPreview.innerHTML = "";
+  const card = document.createElement("a");
+  card.className = "composer-link-preview-card";
+  if (loading) {
+    card.classList.add("is-loading");
+  }
+  card.href = String(data?.url || "#");
+  card.target = "_blank";
+  card.rel = "noopener noreferrer";
+  card.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  const media = document.createElement("div");
+  media.className = "composer-link-preview-media";
+  const imageUrl = normalizeComposerPreviewImageUrl(data?.imageUrl);
+  if (imageUrl) {
+    const image = document.createElement("img");
+    const proxyImageUrl = getPreviewImageProxyUrl(imageUrl) || imageUrl;
+    let triedDirectImageUrl = false;
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => {
+      if (!triedDirectImageUrl && proxyImageUrl !== imageUrl) {
+        triedDirectImageUrl = true;
+        image.src = imageUrl;
+        return;
+      }
+      media.innerHTML = "";
+      media.classList.add("is-fallback");
+      media.textContent = "🔗";
+    });
+    image.src = proxyImageUrl;
+    media.appendChild(image);
+  } else {
+    media.classList.add("is-fallback");
+    media.textContent = "🔗";
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "composer-link-preview-meta";
+
+  const siteEl = document.createElement("div");
+  siteEl.className = "composer-link-preview-site";
+  siteEl.textContent = normalizeComposerPreviewText(data?.siteName, 72) || "Ссылка";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "composer-link-preview-title";
+  titleEl.textContent = normalizeComposerPreviewText(data?.title, 120) || "Ссылка";
+
+  const descEl = document.createElement("div");
+  descEl.className = "composer-link-preview-desc";
+  descEl.textContent = loading
+    ? "Загружаем превью..."
+    : normalizeComposerPreviewText(data?.description, 170) || "Открыть ссылку";
+
+  meta.appendChild(siteEl);
+  meta.appendChild(titleEl);
+  meta.appendChild(descEl);
+
+  card.appendChild(media);
+  card.appendChild(meta);
+  composerLinkPreview.appendChild(card);
+  composerLinkPreview.classList.remove("hidden");
+  composerLinkPreview.dataset.state = loading ? "loading" : "ready";
+  composerLinkPreview.dataset.url = String(data?.url || "");
+}
+
+function resetComposerLinkPreview() {
+  if (composerLinkPreviewTimer) {
+    clearTimeout(composerLinkPreviewTimer);
+    composerLinkPreviewTimer = null;
+  }
+  composerLinkPreviewRequestId += 1;
+  composerLinkPreviewActiveUrl = "";
+  if (!composerLinkPreview) return;
+  composerLinkPreview.innerHTML = "";
+  composerLinkPreview.classList.add("hidden");
+  composerLinkPreview.removeAttribute("data-state");
+  composerLinkPreview.removeAttribute("data-url");
+}
+
+async function fetchComposerLinkPreviewData(url) {
+  const normalizedUrl = String(url || "").trim();
+  if (!normalizedUrl || typeof fetch !== "function") return null;
+  const cachedEntry = composerLinkPreviewCache.get(normalizedUrl);
+  if (cachedEntry && typeof cachedEntry === "object") {
+    if (cachedEntry.payload && Number(cachedEntry.expiresAt) > Date.now()) {
+      return cachedEntry.payload;
+    }
+    composerLinkPreviewCache.delete(normalizedUrl);
+  }
+
+  let abortController = null;
+  let timeoutId = null;
+  try {
+    if (typeof AbortController === "function") {
+      abortController = new AbortController();
+      timeoutId = setTimeout(() => {
+        try {
+          abortController.abort();
+        } catch (_) {
+          // ignore
+        }
+      }, COMPOSER_LINK_PREVIEW_FETCH_TIMEOUT_MS);
+    }
+    const response = await fetch(
+      `/api/link-preview?url=${encodeURIComponent(normalizedUrl)}`,
+      {
+        method: "GET",
+        signal: abortController ? abortController.signal : undefined,
+        headers: { Accept: "application/json" },
+      }
+    );
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!payload || typeof payload !== "object" || !payload.ok) return null;
+    const result = {
+      url: String(payload.url || normalizedUrl),
+      title: normalizeComposerPreviewText(payload.title, 120),
+      providerName: normalizeComposerPreviewText(payload.providerName, 72),
+      siteName: normalizeComposerPreviewText(payload.siteName, 72),
+      description: normalizeComposerPreviewText(payload.description, 170),
+      imageUrl: normalizeComposerPreviewImageUrl(payload.imageUrl),
+    };
+    const qualityScore = estimateLinkPreviewQuality(result);
+    if (qualityScore >= COMPOSER_LINK_PREVIEW_MIN_SCORE_TO_CACHE) {
+      composerLinkPreviewCache.set(normalizedUrl, {
+        payload: result,
+        expiresAt: Date.now() + COMPOSER_LINK_PREVIEW_CACHE_TTL_MS,
+      });
+    } else {
+      composerLinkPreviewCache.delete(normalizedUrl);
+    }
+    return result;
+  } catch (_) {
+    return null;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function updateComposerLinkPreview() {
+  if (!composerLinkPreview || !messageInput) return;
+  if (editTarget) {
+    resetComposerLinkPreview();
+    return;
+  }
+  const nextUrl = extractFirstComposerLink(messageInput.value);
+  if (!nextUrl) {
+    resetComposerLinkPreview();
+    return;
+  }
+
+  const requestId = ++composerLinkPreviewRequestId;
+  composerLinkPreviewActiveUrl = nextUrl;
+  const fallback = buildComposerLinkFallback(nextUrl);
+  renderComposerLinkPreviewCard(fallback, { loading: true });
+
+  const metadata = await fetchComposerLinkPreviewData(nextUrl);
+  if (requestId !== composerLinkPreviewRequestId) return;
+  if (composerLinkPreviewActiveUrl !== nextUrl) return;
+
+  const merged = mergeComposerLinkPreviewData(fallback, metadata);
+  renderComposerLinkPreviewCard(merged, { loading: false });
+}
+
+async function updateComposerLinkPreviewSafe() {
+  if (composerLinkPreviewDisabled) return;
+  try {
+    await updateComposerLinkPreview();
+  } catch (error) {
+    composerLinkPreviewDisabled = true;
+    resetComposerLinkPreview();
+    console.error("[composer-link-preview] disabled due runtime error", error);
+  }
+}
+
+function scheduleComposerLinkPreviewUpdate({ immediate = false } = {}) {
+  if (!composerLinkPreview || !messageInput || composerLinkPreviewDisabled) return;
+  if (composerLinkPreviewTimer) {
+    clearTimeout(composerLinkPreviewTimer);
+    composerLinkPreviewTimer = null;
+  }
+  if (immediate) {
+    void updateComposerLinkPreviewSafe();
+    return;
+  }
+  composerLinkPreviewTimer = setTimeout(() => {
+    composerLinkPreviewTimer = null;
+    void updateComposerLinkPreviewSafe();
+  }, COMPOSER_LINK_PREVIEW_DEBOUNCE_MS);
+}
+
+function hideMessageLinkPreview(container) {
+  if (!container) return;
+  container.innerHTML = "";
+  container.classList.add("hidden");
+  container.removeAttribute("data-state");
+  container.removeAttribute("data-url");
+  container.removeAttribute("data-request-id");
+}
+
+function renderMessageLinkPreviewCard(container, data, { loading = false } = {}) {
+  if (!container) return;
+  container.innerHTML = "";
+  const card = document.createElement("a");
+  card.className = "message-link-preview-card";
+  if (loading) {
+    card.classList.add("is-loading");
+  }
+  card.href = String(data?.url || "#");
+  card.target = "_blank";
+  card.rel = "noopener noreferrer";
+  card.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  const meta = document.createElement("div");
+  meta.className = "message-link-preview-meta";
+
+  const siteEl = document.createElement("div");
+  siteEl.className = "message-link-preview-site";
+  siteEl.textContent = normalizeComposerPreviewText(data?.siteName, 72) || "Ссылка";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "message-link-preview-title";
+  titleEl.textContent = normalizeComposerPreviewText(data?.title, 120) || "Ссылка";
+
+  const descEl = document.createElement("div");
+  descEl.className = "message-link-preview-desc";
+  descEl.textContent = loading
+    ? "Загружаем превью…"
+    : normalizeComposerPreviewText(data?.description, 220) || "Открыть ссылку";
+
+  meta.appendChild(siteEl);
+  meta.appendChild(titleEl);
+  meta.appendChild(descEl);
+  card.appendChild(meta);
+
+  const imageUrl = normalizeComposerPreviewImageUrl(data?.imageUrl);
+  if (imageUrl && !loading) {
+    const isWeakImage =
+      /google\.com\/s2\/favicons|favicon|touch-icon|apple-touch-icon|logo(?:\.|%2e)/i.test(
+        imageUrl
+      );
+    if (isWeakImage) {
+      const iconWrap = document.createElement("div");
+      iconWrap.className = "message-link-preview-image-wrap is-icon";
+      card.classList.add("has-icon");
+      const icon = document.createElement("img");
+      const proxyImageUrl = getPreviewImageProxyUrl(imageUrl) || imageUrl;
+      let triedDirectImageUrl = false;
+      icon.className = "message-link-preview-image";
+      icon.alt = normalizeComposerPreviewText(data?.siteName, 72) || "Иконка сайта";
+      icon.loading = "lazy";
+      icon.decoding = "async";
+      icon.referrerPolicy = "no-referrer";
+      icon.addEventListener("error", () => {
+        if (!triedDirectImageUrl && proxyImageUrl !== imageUrl) {
+          triedDirectImageUrl = true;
+          icon.src = imageUrl;
+          return;
+        }
+        iconWrap.remove();
+        card.classList.remove("has-icon");
+        card.classList.add("has-no-image");
+      });
+      icon.src = proxyImageUrl;
+      iconWrap.appendChild(icon);
+      card.insertBefore(iconWrap, meta);
+    } else {
+      const imageWrap = document.createElement("div");
+      imageWrap.className = "message-link-preview-image-wrap";
+      card.classList.add("has-image");
+      const image = document.createElement("img");
+      const proxyImageUrl = getPreviewImageProxyUrl(imageUrl) || imageUrl;
+      let triedDirectImageUrl = false;
+      image.className = "message-link-preview-image";
+      image.alt = normalizeComposerPreviewText(data?.title, 120) || "Превью ссылки";
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.referrerPolicy = "no-referrer";
+      image.addEventListener("error", () => {
+        if (!triedDirectImageUrl && proxyImageUrl !== imageUrl) {
+          triedDirectImageUrl = true;
+          image.src = imageUrl;
+          return;
+        }
+        imageWrap.remove();
+      });
+      image.src = proxyImageUrl;
+      imageWrap.appendChild(image);
+      card.appendChild(imageWrap);
+    }
+  } else {
+    card.classList.add("has-no-image");
+  }
+
+  container.appendChild(card);
+  container.classList.remove("hidden");
+  container.dataset.state = loading ? "loading" : "ready";
+  container.dataset.url = String(data?.url || "");
+}
+
+function updateMessageLinkPreviewForElement(messageEl, textValue, { isSticker = false } = {}) {
+  try {
+    if (!messageEl) return;
+    const container = messageEl.querySelector(".message-link-preview");
+    if (!container) return;
+    if (isSticker) {
+      hideMessageLinkPreview(container);
+      return;
+    }
+
+    const normalizedText = String(textValue || "");
+    const previewUrl = extractFirstComposerLink(normalizedText);
+    if (!previewUrl) {
+      hideMessageLinkPreview(container);
+      return;
+    }
+
+    const fallback = buildComposerLinkFallback(previewUrl);
+    const requestId = String(++messageLinkPreviewRequestCounter);
+    container.dataset.requestId = requestId;
+    renderMessageLinkPreviewCard(container, fallback, { loading: true });
+
+    void fetchComposerLinkPreviewData(previewUrl)
+      .then((metadata) => {
+        if (!container.isConnected) return;
+        if (container.dataset.requestId !== requestId) return;
+        if ((container.dataset.url || "") !== previewUrl) return;
+        const merged = mergeComposerLinkPreviewData(fallback, metadata);
+        renderMessageLinkPreviewCard(container, merged, { loading: false });
+      })
+      .catch(() => {
+        if (!container.isConnected) return;
+        if (container.dataset.requestId !== requestId) return;
+        renderMessageLinkPreviewCard(container, fallback, { loading: false });
+      });
+  } catch (error) {
+    console.error("[message-link-preview] runtime error", error);
+  }
+}
+
 function isChatComposerAvailable() {
   return Boolean(
     chatScreen &&
@@ -4303,6 +4930,7 @@ function setEmojiTab(tab) {
 
 function openLightbox(src, alt) {
   if (!lightbox || !lightboxImage || !src) return;
+  avatarLightboxRequestId += 1;
   lightboxImage.src = src;
   lightboxImage.alt = alt || "Просмотр изображения";
   lightbox.classList.remove("hidden");
@@ -4354,6 +4982,12 @@ document.addEventListener("keydown", (event) => {
   if (chatMembersModal && !chatMembersModal.classList.contains("hidden")) {
     closeChatMembersModal();
   }
+  if (messageDeleteConfirmModal && !messageDeleteConfirmModal.classList.contains("hidden")) {
+    closeMessageDeleteConfirmModal({ confirmed: false });
+  }
+  if (memberDeleteConfirmModal && !memberDeleteConfirmModal.classList.contains("hidden")) {
+    closeMemberDeleteConfirmModal({ confirmed: false });
+  }
   if (editTarget) {
     cancelMessageEdit({ clearInput: true });
   }
@@ -4385,13 +5019,16 @@ async function uploadAttachments(files) {
 if (messageInput) {
   messageInput.addEventListener("input", () => {
     autoSizeTextarea();
-    if (!mentionTarget) return;
-    const detected = detectMentionTarget(messageInput.value);
-    if (!detected || !isSameLogin(detected, mentionTarget)) {
-      mentionTarget = null;
+    if (mentionTarget) {
+      const detected = detectMentionTarget(messageInput.value);
+      if (!detected || !isSameLogin(detected, mentionTarget)) {
+        mentionTarget = null;
+      }
     }
+    scheduleComposerLinkPreviewUpdate();
   });
   autoSizeTextarea();
+  scheduleComposerLinkPreviewUpdate({ immediate: true });
 
   messageInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -4433,6 +5070,7 @@ if (clearMessageButton) {
     }
     messageInput.value = "";
     mentionTarget = null;
+    resetComposerLinkPreview();
     autoSizeTextarea();
     messageInput.focus();
   });
@@ -4955,6 +5593,7 @@ async function loadOlderPublicHistory() {
 function maybeLoadOlderPublicHistory() {
   if (!messagesList) return;
   if (activeChat.type !== "public") return;
+  if (Date.now() < historyAutoloadBlockedUntil) return;
   if (messagesList.scrollTop > PUBLIC_HISTORY_TOP_THRESHOLD) return;
   void loadOlderPublicHistory();
 }
@@ -5098,6 +5737,68 @@ function updateHistoryEntryByMessageId(entries, messageId, updater) {
   return target;
 }
 
+function removeHistoryEntryByMessageId(entries, messageId) {
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId || !Array.isArray(entries)) return null;
+  const index = entries.findIndex(
+    (entry) => String(entry?.messageId || "") === normalizedMessageId
+  );
+  if (index < 0) return null;
+  const [removed] = entries.splice(index, 1);
+  return removed || null;
+}
+
+function removeRenderedMessageById(messageId) {
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId) return;
+
+  if (
+    activeReactionTarget &&
+    String(activeReactionTarget.messageId || "") === normalizedMessageId
+  ) {
+    closeReactionPicker();
+  }
+
+  const messageEl = messageElementMap.get(normalizedMessageId);
+  if (messageEl && messageEl.isConnected) {
+    messageEl.remove();
+  }
+
+  messageElementMap.delete(normalizedMessageId);
+  messageElements.delete(normalizedMessageId);
+  messageReactions.delete(normalizedMessageId);
+  messageReactionSelections.delete(normalizedMessageId);
+  reactionRequestInFlight.delete(normalizedMessageId);
+  readMessageIds.delete(normalizedMessageId);
+  recipientHighlightQueue.delete(normalizedMessageId);
+  recipientHighlightDone.delete(normalizedMessageId);
+
+  unreadMessages = unreadMessages.filter(
+    (messageNode) => messageNode && messageNode.isConnected && messageNode !== messageEl
+  );
+  firstUnreadMessage = unreadMessages[0] || null;
+  updateUnreadIndicator();
+  updateScrollToLatestButton();
+}
+
+function cleanupAfterMessageDeleted(messageId) {
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId) return;
+  if (
+    replyTarget?.messageId &&
+    String(replyTarget.messageId) === normalizedMessageId
+  ) {
+    hideReplyPreview();
+  }
+  if (
+    editTarget?.messageId &&
+    String(editTarget.messageId) === normalizedMessageId
+  ) {
+    cancelMessageEdit({ clearInput: true });
+  }
+  removeRenderedMessageById(normalizedMessageId);
+}
+
 function updateRenderedEditedMessage(entry, { chatType = "public", partner = null } = {}) {
   const normalizedMessageId = String(entry?.messageId || "").trim();
   if (!normalizedMessageId) return false;
@@ -5113,9 +5814,11 @@ function updateRenderedEditedMessage(entry, { chatType = "public", partner = nul
   if (!messageEl || !messageEl.isConnected) return false;
 
   const textEl = messageEl.querySelector(".message-body .text");
+  let isStickerMessage = false;
+  const textValue = String(entry?.text || "");
   if (textEl) {
-    const textValue = String(entry?.text || "");
     const sticker = getStickerPayload(textValue);
+    isStickerMessage = Boolean(sticker);
     if (sticker) {
       textEl.innerHTML = `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
         sticker.label
@@ -5123,7 +5826,10 @@ function updateRenderedEditedMessage(entry, { chatType = "public", partner = nul
     } else {
       textEl.innerHTML = formatMessageText(textValue, { mentionTo: entry?.mentionTo || null });
     }
+  } else {
+    isStickerMessage = Boolean(getStickerPayload(textValue));
   }
+  updateMessageLinkPreviewForElement(messageEl, textValue, { isSticker: isStickerMessage });
 
   const mentionChip = messageEl.querySelector(".mention-chip");
   if (mentionChip && entry?.mentionTo) {
@@ -5200,6 +5906,31 @@ function applyDirectMessageEdited(payload) {
   return true;
 }
 
+function applyPublicMessageDeleted(payload) {
+  const removed = removeHistoryEntryByMessageId(publicHistory, payload?.messageId);
+  if (!removed) return false;
+  if (publicHistoryState.isInitialized) {
+    publicHistoryState.total = Math.max(0, publicHistoryState.total - 1);
+  }
+  cleanupAfterMessageDeleted(removed.messageId);
+  return true;
+}
+
+function applyDirectMessageDeleted(payload) {
+  const partner = getDirectPartnerFromPayload(payload);
+  if (!partner) return false;
+  const history = getDirectHistory(partner);
+  const removed = removeHistoryEntryByMessageId(history, payload?.messageId);
+  if (!removed) return false;
+  const state = getDirectHistoryPaging(partner);
+  if (state?.isInitialized) {
+    state.total = Math.max(0, state.total - 1);
+  }
+  cleanupAfterMessageDeleted(removed.messageId);
+  renderUserList();
+  return true;
+}
+
 function startMessageEdit({ chatType, messageId, currentText, hasAttachments }) {
   if (!messageInput) return false;
   const normalizedChatType =
@@ -5225,6 +5956,7 @@ function startMessageEdit({ chatType, messageId, currentText, hasAttachments }) 
   }
 
   messageInput.value = editTarget.originalText;
+  resetComposerLinkPreview();
   autoSizeTextarea();
   showEditPreview();
   messageInput.focus();
@@ -5316,6 +6048,43 @@ async function submitMessageEditFromComposer() {
 
 function requestMessageEdit({ chatType, messageId, currentText, hasAttachments }) {
   return startMessageEdit({ chatType, messageId, currentText, hasAttachments });
+}
+
+async function requestMessageDelete({ chatType, messageId }) {
+  const normalizedChatType = chatType === "direct" ? "direct" : chatType === "notes" ? "notes" : "public";
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId) return false;
+
+  const confirmed = await openMessageDeleteConfirmModal();
+  if (!confirmed) return false;
+
+  if (normalizedChatType === "notes") {
+    return deleteOwnNoteMessage(normalizedMessageId);
+  }
+
+  const response = await emitWithAck(
+    normalizedChatType === "direct" ? "deleteDirectMessage" : "deletePublicMessage",
+    { messageId: normalizedMessageId }
+  );
+  if (!response?.ok) {
+    pushChatNotification({
+      title: "Удаление",
+      body: response?.message || "Не удалось удалить сообщение.",
+      autoDismissMs: 2400,
+      autoDismissWhenVisible: true,
+    });
+    return false;
+  }
+
+  const deletedPayload = response?.message;
+  if (deletedPayload && typeof deletedPayload === "object") {
+    if (normalizedChatType === "direct") {
+      return applyDirectMessageDeleted(deletedPayload);
+    }
+    return applyPublicMessageDeleted(deletedPayload);
+  }
+
+  return false;
 }
 
 function updateDirectPagingFromResponse(partner, response) {
@@ -5454,6 +6223,7 @@ async function loadOlderDirectHistory(partner) {
 function maybeLoadOlderDirectHistory() {
   if (!messagesList) return;
   if (activeChat.type !== "direct" || !activeChat.partner) return;
+  if (Date.now() < historyAutoloadBlockedUntil) return;
   if (messagesList.scrollTop > DIRECT_HISTORY_TOP_THRESHOLD) return;
   void loadOlderDirectHistory(activeChat.partner);
 }
@@ -5483,6 +6253,72 @@ function closeParticipantsModal() {
   participantsModal.classList.add("hidden");
 }
 
+function resolveMessageDeleteConfirm(result) {
+  const resolver = messageDeleteConfirmResolver;
+  messageDeleteConfirmResolver = null;
+  if (typeof resolver === "function") {
+    resolver(Boolean(result));
+  }
+}
+
+function closeMessageDeleteConfirmModal({ confirmed = false } = {}) {
+  if (messageDeleteConfirmModal) {
+    messageDeleteConfirmModal.classList.add("hidden");
+  }
+  resolveMessageDeleteConfirm(confirmed);
+}
+
+function openMessageDeleteConfirmModal() {
+  return new Promise((resolve) => {
+    if (!messageDeleteConfirmModal) {
+      resolve(false);
+      return;
+    }
+    if (typeof messageDeleteConfirmResolver === "function") {
+      messageDeleteConfirmResolver(false);
+      messageDeleteConfirmResolver = null;
+    }
+    messageDeleteConfirmResolver = resolve;
+    messageDeleteConfirmModal.classList.remove("hidden");
+    requestAnimationFrame(() => {
+      messageDeleteConfirmAccept?.focus();
+    });
+  });
+}
+
+function resolveMemberDeleteConfirm(result) {
+  const resolver = memberDeleteConfirmResolver;
+  memberDeleteConfirmResolver = null;
+  if (typeof resolver === "function") {
+    resolver(Boolean(result));
+  }
+}
+
+function closeMemberDeleteConfirmModal({ confirmed = false } = {}) {
+  if (memberDeleteConfirmModal) {
+    memberDeleteConfirmModal.classList.add("hidden");
+  }
+  resolveMemberDeleteConfirm(confirmed);
+}
+
+function openMemberDeleteConfirmModal() {
+  return new Promise((resolve) => {
+    if (!memberDeleteConfirmModal) {
+      resolve(false);
+      return;
+    }
+    if (typeof memberDeleteConfirmResolver === "function") {
+      memberDeleteConfirmResolver(false);
+      memberDeleteConfirmResolver = null;
+    }
+    memberDeleteConfirmResolver = resolve;
+    memberDeleteConfirmModal.classList.remove("hidden");
+    requestAnimationFrame(() => {
+      memberDeleteConfirmAccept?.focus();
+    });
+  });
+}
+
 function renderParticipantsModalList() {
   if (!participantsList) return;
   participantsList.innerHTML = "";
@@ -5499,7 +6335,12 @@ function renderParticipantsModalList() {
       login: normalizeLoginValue(item?.login),
     }))
     .filter((item) => Boolean(item.login))
-    .sort((a, b) => String(a.login).localeCompare(String(b.login), "ru", { sensitivity: "base" }));
+    .sort((a, b) => {
+      const aSelf = isSameLogin(a?.login, currentLogin);
+      const bSelf = isSameLogin(b?.login, currentLogin);
+      if (aSelf !== bSelf) return aSelf ? -1 : 1;
+      return String(a.login).localeCompare(String(b.login), "ru", { sensitivity: "base" });
+    });
 
   if (sorted.length === 0) {
     const empty = document.createElement("li");
@@ -5526,6 +6367,7 @@ function renderParticipantsModalList() {
       color,
       avatarUrl,
       avatarOriginal,
+      avatarLogin: name,
       isClickable: true,
       isOnline,
       isSelf: isSameLogin(name, currentLogin),
@@ -5646,6 +6488,14 @@ function clearDirectUnread(partner) {
   directUnreadCounts.delete(partner);
 }
 
+function clearPublicUnread() {
+  publicUnreadCount = 0;
+}
+
+function registerPublicUnread() {
+  publicUnreadCount += 1;
+}
+
 function registerDirectUnread(partner) {
   if (!partner) return;
   const next = (directUnreadCounts.get(partner) || 0) + 1;
@@ -5711,6 +6561,9 @@ function updateChatViewMode() {
   }
   if (attachmentPreview && isHome) {
     attachmentPreview.classList.add("hidden");
+  }
+  if (composerLinkPreview && isHome) {
+    composerLinkPreview.classList.add("hidden");
   }
   if (scrollToLatestButton) {
     if (isHome) {
@@ -5795,6 +6648,10 @@ function setActiveChat(type, partner = null) {
     partner: nextType === "direct" ? normalizedPartner : null,
   };
 
+  if (nextType === "public") {
+    clearPublicUnread();
+  }
+
   if (nextType === "direct" && normalizedPartner) {
     getDirectHistory(normalizedPartner);
     getDirectHistoryPaging(normalizedPartner);
@@ -5852,18 +6709,42 @@ function updateScrollToLatestButton() {
   scrollToLatestButton.classList.toggle("hidden", !shouldShow);
 }
 
-function stabilizeScrollToBottom(renderToken) {
+function stabilizeScrollToBottom(renderToken, { force = false } = {}) {
   if (!messagesList) return;
+  historyAutoloadBlockedUntil = Date.now() + 7000;
+  let userMovedAwayFromBottom = false;
+  let hasAutoScrolled = false;
+  let lastAutoScrollTop = 0;
   const safeScroll = () => {
     if (renderToken !== activeChatRenderToken) return;
+    if (!force && hasAutoScrolled) {
+      const currentTop = Number(messagesList.scrollTop || 0);
+      // Stop auto-stick only when user really scrolled up, not when content height grew.
+      if (currentTop + 8 < lastAutoScrollTop) {
+        userMovedAwayFromBottom = true;
+      }
+    }
+    if (userMovedAwayFromBottom) {
+      return;
+    }
     scrollMessagesToBottom();
+    hasAutoScrolled = true;
+    lastAutoScrollTop = Number(messagesList.scrollTop || 0);
   };
 
   safeScroll();
   requestAnimationFrame(safeScroll);
-  [80, 180, 320, 550, 900].forEach((delayMs) => {
+  [80, 180, 320, 550, 900, 1300, 1800, 2400, 3200, 4300, 5600].forEach((delayMs) => {
     setTimeout(safeScroll, delayMs);
   });
+
+  const observer = new MutationObserver(() => {
+    safeScroll();
+  });
+  observer.observe(messagesList, { childList: true, subtree: true });
+  setTimeout(() => {
+    observer.disconnect();
+  }, 6200);
 
   const mediaNodes = messagesList.querySelectorAll("img, video, audio");
   mediaNodes.forEach((node) => {
@@ -5886,7 +6767,7 @@ function forceScrollToBottomAfterOwnSend() {
   if (!messagesList) return;
   scrollMessagesToBottom();
   clearUnreadMessages();
-  stabilizeScrollToBottom(activeChatRenderToken);
+  stabilizeScrollToBottom(activeChatRenderToken, { force: true });
   updateScrollToLatestButton();
 }
 
@@ -6025,7 +6906,9 @@ function renderMessage({
   const li = document.createElement("li");
   li.classList.add("message");
   const isMine = currentLogin && isSameLogin(login, currentLogin);
-  const isOwnNoteMessage = Boolean(isMine && chatType === "notes");
+  const canDeleteOwnMessage = Boolean(
+    isMine && (chatType === "public" || chatType === "direct" || chatType === "notes")
+  );
   const canEditOwnMessage = Boolean(
     isMine && (chatType === "public" || chatType === "direct" || chatType === "notes")
   );
@@ -6198,10 +7081,11 @@ function renderMessage({
       }</span>
     </div>
   `;
+  const deleteActionTitle = chatType === "notes" ? "Удалить заметку" : "Удалить сообщение";
 
   li.innerHTML = `
     <img class="message-avatar" src="${avatarUrl}" alt="${escapeHtml(login)}" />
-    <div class="message-bubble${isOwnNoteMessage ? " has-note-delete" : ""}${canEditOwnMessage ? " has-message-edit" : ""}">
+    <div class="message-bubble${canDeleteOwnMessage ? " has-message-delete" : ""}${canEditOwnMessage ? " has-message-edit" : ""}">
       <div class="meta">
         <button type="button" class="author" data-login="${escapeHtml(login)}">${escapeHtml(
           login
@@ -6218,6 +7102,7 @@ function renderMessage({
         }</div>
         ${statusHtml}
       </div>
+      <div class="message-link-preview hidden"></div>
       ${attachmentsHtml}
       <div class="message-reactions" aria-label="Реакции"></div>
       <button type="button" class="reaction-trigger" title="Поставить реакцию">😊</button>
@@ -6227,8 +7112,8 @@ function renderMessage({
           : ""
       }
       ${
-        isOwnNoteMessage
-          ? '<button type="button" class="note-delete-trigger" title="Удалить заметку" aria-label="Удалить заметку">✕</button>'
+        canDeleteOwnMessage
+          ? `<button type="button" class="message-delete-trigger" title="${deleteActionTitle}" aria-label="${deleteActionTitle}">✕</button>`
           : ""
       }
     </div>
@@ -6279,6 +7164,7 @@ function renderMessage({
     }
     bubbleEl.style.boxShadow = `0 0 12px ${glow}, 0 10px 18px rgba(15, 23, 42, 0.36)`;
   }
+  updateMessageLinkPreviewForElement(li, text, { isSticker: Boolean(sticker) });
 
   const authorEl = li.querySelector(".author");
   if (authorEl) {
@@ -6342,6 +7228,9 @@ function renderMessage({
   // клик по сообщению — выбрать его как цель для ответа
   if (bubbleEl) {
     bubbleEl.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest("a")) {
+        return;
+      }
       event.stopPropagation();
       if (editTarget) {
         cancelMessageEdit({ clearInput: true });
@@ -6385,11 +7274,14 @@ function renderMessage({
       });
     });
   }
-  const noteDeleteTrigger = li.querySelector(".note-delete-trigger");
-  if (noteDeleteTrigger) {
-    noteDeleteTrigger.addEventListener("click", (event) => {
+  const messageDeleteTrigger = li.querySelector(".message-delete-trigger, .note-delete-trigger");
+  if (messageDeleteTrigger) {
+    messageDeleteTrigger.addEventListener("click", async (event) => {
       event.stopPropagation();
-      deleteOwnNoteMessage(resolvedMessageId);
+      await requestMessageDelete({
+        chatType,
+        messageId: resolvedMessageId,
+      });
     });
   }
   const checkEl = li.querySelector(".message-checks");
@@ -6794,6 +7686,7 @@ messageForm.addEventListener("submit", async (e) => {
   lastSentMessageAt = Date.now();
 
   messageInput.value = "";
+  resetComposerLinkPreview();
   autoSizeTextarea(); // вернуть высоту
   if (attachmentInput) {
     attachmentInput.value = "";
@@ -7022,6 +7915,9 @@ socket.on("chatMessage", (payload) => {
 
   if (activeChat.type === "public") {
     renderMessage(latestEntry);
+  } else {
+    registerPublicUnread();
+    renderChatRoomsList();
   }
 
   if (login !== currentLogin && mentionTo && isSameLogin(mentionTo, currentLogin)) {
@@ -7118,6 +8014,14 @@ socket.on("directMessageEdited", (payload) => {
   applyDirectMessageEdited(payload);
 });
 
+socket.on("chatMessageDeleted", (payload) => {
+  applyPublicMessageDeleted(payload);
+});
+
+socket.on("directMessageDeleted", (payload) => {
+  applyDirectMessageDeleted(payload);
+});
+
 socket.on("messageReactionUpdated", (payload) => {
   const messageId = String(payload?.messageId || "").trim();
   if (!messageId) return;
@@ -7206,13 +8110,27 @@ function resolveUserVisuals({
 }) {
   const color =
     (user && user.color) || fallbackColor || getColorForLogin(name);
+  const userAvatar =
+    user && typeof user.avatar === "string" && user.avatar.trim()
+      ? user.avatar
+      : null;
+  const userAvatarOriginal =
+    user && typeof user.avatarOriginal === "string" && user.avatarOriginal.trim()
+      ? user.avatarOriginal
+      : null;
+  const resolvedAvatarId =
+    (user && !userAvatar && user.avatarId) || fallbackAvatarId;
   const avatarUrl =
+    userAvatar ||
     fallbackAvatar ||
-    (user && user.avatar) ||
-    getAvatarById(fallbackAvatarId || (user && user.avatarId)) ||
+    getAvatarById(resolvedAvatarId) ||
     getAvatarForLogin(name);
   const avatarOriginal =
-    fallbackAvatarOriginal || (user && user.avatarOriginal) || avatarUrl;
+    userAvatarOriginal ||
+    fallbackAvatarOriginal ||
+    userAvatar ||
+    fallbackAvatar ||
+    avatarUrl;
   return { color, avatarUrl, avatarOriginal };
 }
 
@@ -7221,6 +8139,7 @@ function createUserListItem({
   color,
   avatarUrl,
   avatarOriginal = null,
+  avatarLogin = null,
   unreadCount = 0,
   isClickable = false,
   isActive = false,
@@ -7239,9 +8158,15 @@ function createUserListItem({
   avatar.dataset.full = avatarOriginal || avatarUrl;
   avatar.classList.add("is-clickable");
   avatar.title = `Открыть аватар ${name}`;
-  avatar.addEventListener("click", (event) => {
+  avatar.addEventListener("click", async (event) => {
     event.stopPropagation();
-    openLightbox(avatar.dataset.full || avatar.src, `Аватар ${name}`);
+    const fallbackSrc = avatar.dataset.full || avatar.src;
+    const resolvedLogin = normalizeLoginValue(avatarLogin);
+    if (resolvedLogin) {
+      await openAvatarLightboxByLogin(resolvedLogin, fallbackSrc, `Аватар ${name}`);
+      return;
+    }
+    openLightbox(fallbackSrc, `Аватар ${name}`);
   });
   avatar.style.setProperty("--avatar-border", color);
   avatar.style.setProperty("--avatar-glow", hexToRgba(color, 0.35));
@@ -7299,11 +8224,15 @@ function renderChatRoomsList() {
         room.avatarOriginal) ||
       avatarUrl;
     const roomId = String(room?.id || DEFAULT_CHAT_ROOM_ID);
+    const showPublicUnread =
+      activeChat.type !== "public" &&
+      String(currentChatRoomId || "") === roomId;
     const li = createUserListItem({
       name: title,
       color,
       avatarUrl,
       avatarOriginal,
+      unreadCount: showPublicUnread ? publicUnreadCount : 0,
       isClickable: true,
       isActive: activeChat.type === "public" && String(currentChatRoomId || "") === roomId,
     });
@@ -7336,6 +8265,7 @@ function renderSelfUser() {
     color,
     avatarUrl,
     avatarOriginal,
+    avatarLogin: currentLogin,
     isSelf: true,
   });
   li.title = "Открыть личные заметки";
@@ -7409,6 +8339,7 @@ function renderDirectList(onlineLogins) {
       color: item.color,
       avatarUrl: item.avatarUrl,
       avatarOriginal: item.avatarOriginal,
+      avatarLogin: item.partner,
       unreadCount: item.unreadCount,
       isClickable: true,
       isActive: activeChat.type === "direct" && activeChat.partner === item.partner,
@@ -7475,6 +8406,7 @@ function renderContactsList() {
       color,
       avatarUrl,
       avatarOriginal,
+      avatarLogin: name,
       unreadCount: directUnreadCounts.get(name) || 0,
       isClickable: true,
       isActive: activeChat.type === "direct" && isSameLogin(activeChat.partner, name),
@@ -7517,6 +8449,7 @@ function renderOnlineList() {
       color,
       avatarUrl,
       avatarOriginal,
+      avatarLogin: name,
       isClickable: true,
       isOnline: true,
     });
