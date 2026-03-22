@@ -4,57 +4,177 @@
     <meta charset="utf-8" />
     <title>БРО ЧАТ</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css?v=20260322_0448" />
   </head>
   <body>
     <div class="app">
       <div id="login-screen" class="panel login-panel">
         <div class="logo">БРО ЧАТ</div>
-        <p class="subtitle">Введи логин и заходи в комнату</p>
-<form id="login-form" class="login-form">
-  <input
-    id="login"
-    type="text"
-    placeholder="Твой логин"
-    maxlength="20"
-    autocomplete="off"
-    required
-  />
+        <p class="subtitle">Вход в чат</p>
+        <form id="login-form" class="login-form">
+          <input
+            id="login"
+            type="text"
+            placeholder="Ваш ник"
+            maxlength="20"
+            autocomplete="username"
+            required
+          />
+          <input
+            id="login-password"
+            type="password"
+            placeholder="Пароль"
+            maxlength="120"
+            autocomplete="current-password"
+            required
+          />
+          <button type="submit">Войти</button>
+          <div id="login-feedback" class="auth-feedback hidden" aria-live="polite"></div>
+        </form>
 
-  <div class="avatar-picker">
-    <span>Аватар</span>
-    <div id="avatar-options" class="avatar-options"></div>
-    <div class="avatar-upload">
-      <label class="avatar-upload-label">
-        <input id="avatar-upload" type="file" accept="image/*" />
-        <span>Загрузить свой</span>
-      </label>
-      <img
-        id="avatar-upload-preview"
-        class="avatar-upload-preview hidden"
-        alt="Загруженный аватар"
-      />
-      <button
-        type="button"
-        id="avatar-upload-clear"
-        class="avatar-upload-clear hidden"
-      >
-        Сбросить
-      </button>
-    </div>
-  </div>
+        <div class="register-block">
+          <button id="register-toggle" type="button" class="register-toggle">
+            Регистрация
+          </button>
+          <form id="register-form" class="login-form register-form hidden">
+            <input
+              id="register-login"
+              type="text"
+              placeholder="Придумайте ник"
+              maxlength="20"
+              autocomplete="username"
+              required
+            />
+            <input
+              id="register-email"
+              type="email"
+              placeholder="Ваша почта"
+              maxlength="120"
+              autocomplete="email"
+              required
+            />
+            <input
+              id="register-password"
+              type="password"
+              placeholder="Придумайте пароль"
+              maxlength="120"
+              autocomplete="new-password"
+              required
+            />
+            <input
+              id="register-password-confirm"
+              type="password"
+              placeholder="Подтвердите пароль"
+              maxlength="120"
+              autocomplete="new-password"
+              required
+            />
 
-  <label class="color-picker">
-    <span>Цвет ника</span>
-    <input
-      id="color-input"
-      type="color"
-      value="#38bdf8"
-    />
-  </label>
+            <div class="avatar-picker">
+              <span>Аватар</span>
+              <div id="avatar-options" class="avatar-options"></div>
+              <div class="avatar-upload">
+                <label class="avatar-upload-label">
+                  <input id="avatar-upload" type="file" accept="image/*" />
+                  <span>Загрузить свой</span>
+                </label>
+                <img
+                  id="avatar-upload-preview"
+                  class="avatar-upload-preview hidden"
+                  alt="Загруженный аватар"
+                />
+                <button
+                  type="button"
+                  id="avatar-upload-clear"
+                  class="avatar-upload-clear hidden"
+                >
+                  Сбросить
+                </button>
+              </div>
+            </div>
 
-  <button type="submit">Войти</button>
-</form>
+            <label class="color-picker">
+              <span>Цвет ника</span>
+              <input
+                id="color-input"
+                type="color"
+                value="#38bdf8"
+              />
+            </label>
+
+            <button type="submit">Создать аккаунт</button>
+            <div id="register-feedback" class="auth-feedback hidden" aria-live="polite"></div>
+          </form>
+
+          <button id="verify-toggle" type="button" class="register-toggle">
+            Подтвердить почту
+          </button>
+          <form id="verify-form" class="login-form register-form hidden">
+            <input
+              id="verify-login"
+              type="text"
+              placeholder="Ник"
+              maxlength="20"
+              autocomplete="username"
+              required
+            />
+            <input
+              id="verify-code"
+              type="text"
+              placeholder="Код из письма"
+              maxlength="12"
+              autocomplete="one-time-code"
+              required
+            />
+            <button type="button" id="verify-send-code">Выслать код</button>
+            <button type="submit">Подтвердить почту</button>
+            <div id="verify-feedback" class="auth-feedback hidden" aria-live="polite"></div>
+          </form>
+
+          <button id="reset-toggle" type="button" class="register-toggle">
+            Восстановить пароль
+          </button>
+          <form id="reset-form" class="login-form register-form hidden">
+            <input
+              id="reset-email"
+              type="email"
+              placeholder="Почта"
+              maxlength="120"
+              autocomplete="email"
+              required
+            />
+            <input
+              id="reset-code"
+              type="text"
+              placeholder="Код из письма"
+              maxlength="12"
+              autocomplete="one-time-code"
+              required
+            />
+            <input
+              id="reset-password"
+              type="password"
+              placeholder="Новый пароль"
+              maxlength="120"
+              autocomplete="new-password"
+              required
+            />
+            <input
+              id="reset-password-confirm"
+              type="password"
+              placeholder="Подтвердите новый пароль"
+              maxlength="120"
+              autocomplete="new-password"
+              required
+            />
+            <button type="button" id="reset-send-code">Выслать код</button>
+            <p id="reset-send-code-hint" class="auth-hint hidden">
+              Кнопка "Выслать код" блокируется, если оба поля нового пароля заполнены, чтобы избежать случайной повторной отправки кода.
+            </p>
+            <button type="submit">Сменить пароль</button>
+            <div id="reset-feedback" class="auth-feedback hidden" aria-live="polite"></div>
+          </form>
+        </div>
 
       </div>
       <div id="avatar-crop-modal" class="avatar-crop-modal hidden" role="dialog" aria-modal="true">
@@ -76,45 +196,114 @@
         </div>
       </div>
 
-      <div id="chat-screen" class="panel chat-panel hidden">
-        <aside class="sidebar">
-          <section class="sidebar-section">
-            <h2>Вы</h2>
-            <ul id="self-user" class="users-list users-list--compact"></ul>
-          </section>
+	      <div id="chat-screen" class="panel chat-panel hidden">
+	        <aside class="sidebar">
+	          <section class="sidebar-section">
+	            <div class="sidebar-section-head">
+	              <button id="profile-button" class="profile-trigger" type="button">Профиль</button>
+	              <button id="logout-button" class="logout-button" type="button">Выход</button>
+	            </div>
+	            <ul id="self-user" class="users-list users-list--compact"></ul>
+	          </section>
 
-          <section class="sidebar-section">
-            <h2>Диалоги</h2>
-            <ul id="direct-list" class="users-list users-list--compact"></ul>
-          </section>
+	          <section class="sidebar-section">
+	            <h2>Мои чаты</h2>
+	            <ul id="chat-rooms-list" class="users-list users-list--compact"></ul>
+	          </section>
 
-          <section class="sidebar-section sidebar-section--stretch">
-            <h2>Онлайн</h2>
+	          <section id="contacts-section" class="sidebar-section">
+	            <div class="sidebar-section-head">
+	              <h2>Мои контакты</h2>
+                <div class="sidebar-section-actions">
+	                <button
+	                  id="contact-search-button"
+	                  class="icon-button contact-search-button"
+	                  type="button"
+	                  title="Поиск контактов"
+	                  aria-label="Поиск контактов"
+	                >
+                    <svg
+                      class="contact-search-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2.2" />
+                      <path d="M16 16L21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+                    </svg>
+	                </button>
+                  <button
+                    id="contacts-toggle"
+                    class="section-toggle"
+                    type="button"
+                    title="Свернуть или развернуть контакты"
+                    aria-label="Свернуть или развернуть контакты"
+                    aria-expanded="true"
+                  >
+                    ▾
+                  </button>
+                </div>
+	            </div>
 
-            <label class="bots-toggle">
-              <input type="checkbox" id="bots-toggle" checked />
-              <span>Тестовые боты (нагрузочный режим)</span>
+	            <label class="bots-toggle hidden" hidden>
+	              <input type="checkbox" id="bots-toggle" checked />
+	              <span>Тестовые боты (нагрузочный режим)</span>
             </label>
 
-            <button
-              id="public-chat-shortcut"
-              class="public-chat-shortcut hidden"
-              type="button"
-            >
-              Общий чат
-            </button>
-
-            <ul id="users-list" class="users-list users-list--stretch"></ul>
+            <ul id="users-list" class="users-list users-list--compact"></ul>
           </section>
-        </aside>
 
-        <main class="chat">
+	          <section id="direct-dialogs-section" class="sidebar-section hidden">
+	            <div class="sidebar-section-head">
+                <h2>Диалоги</h2>
+                <button
+                  id="dialogs-toggle"
+                  class="section-toggle"
+                  type="button"
+                  title="Свернуть или развернуть диалоги"
+                  aria-label="Свернуть или развернуть диалоги"
+                  aria-expanded="true"
+                >
+                  ▾
+                </button>
+              </div>
+	            <ul id="direct-list" class="users-list users-list--compact"></ul>
+	          </section>
+
+          <section id="online-users-section" class="sidebar-section sidebar-section--stretch">
+            <div class="sidebar-section-head">
+              <h2>Онлайн</h2>
+              <button
+                id="online-toggle"
+                class="section-toggle"
+                type="button"
+                title="Свернуть или развернуть онлайн"
+                aria-label="Свернуть или развернуть онлайн"
+                aria-expanded="true"
+              >
+                ▾
+              </button>
+            </div>
+            <ul id="online-users-list" class="users-list users-list--stretch"></ul>
+          </section>
+	        </aside>
+	        <div
+	          id="sidebar-resizer"
+	          class="sidebar-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Изменить ширину левой панели"
+          tabindex="0"
+        ></div>
+
+	        <main class="chat">
 <header class="chat-header">
-  <div class="chat-title">
-    <span id="chat-title-text">БРО ЧАТ</span>
-    <span id="chat-context" class="chat-context hidden"></span>
-    <button
-      id="back-to-public"
+	  <div class="chat-title">
+	    <span id="chat-title-text">БРО ЧАТ</span>
+	    <span id="chat-context" class="chat-context hidden"></span>
+	    <button
+	      id="back-to-public"
       class="back-to-public hidden"
       type="button"
     >
@@ -144,6 +333,15 @@
     </div>
 
     <div class="chat-status" id="chat-status">Подключено</div>
+    <button
+      id="chat-settings-button"
+      class="chat-settings-button hidden"
+      type="button"
+      title="Настройки чата"
+      aria-label="Настройки чата"
+    >
+      ⚙
+    </button>
   </div>
 </header>
 <div id="audio-player" class="audio-player hidden">
@@ -179,12 +377,34 @@
   >
     ✕
   </button>
-  <audio id="audio-element" preload="metadata"></audio>
+	  <audio id="audio-element" preload="metadata"></audio>
 </div>
 
-          <ul id="messages" class="messages"></ul>
-          <button id="unread-indicator" class="unread-indicator hidden" type="button"></button>
-          <div id="chat-notifications" class="chat-notifications"></div>
+	          <section id="home-view" class="home-view hidden">
+	            <div class="home-view-card">
+	              <h3>Контакты и чаты</h3>
+	              <p>
+	                Выберите чат в разделе <b>Мои чаты</b> или откройте приват через
+	                <b>Мои контакты</b>.
+	              </p>
+	            </div>
+	          </section>
+	          <section id="notes-view" class="notes-view hidden">
+	            <div class="notes-view-card">Здесь живут ваши личные заметки</div>
+	          </section>
+
+	          <ul id="messages" class="messages"></ul>
+	          <button id="unread-indicator" class="unread-indicator hidden" type="button"></button>
+	          <button
+	            id="scroll-to-latest"
+	            class="scroll-to-latest hidden"
+	            type="button"
+	            title="К последнему сообщению"
+	            aria-label="Прокрутить к последнему сообщению"
+	          >
+	            ↓
+	          </button>
+	          <div id="chat-notifications" class="chat-notifications"></div>
 
           <!-- превью ответа (reply), как в телеграм -->
           <div id="reply-preview" class="reply-preview hidden">
@@ -197,6 +417,21 @@
               id="reply-cancel"
               class="reply-cancel"
               title="Отменить ответ"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div id="edit-preview" class="reply-preview edit-preview hidden">
+            <div class="reply-info">
+              <span class="reply-author">Редактирование сообщения</span>
+              <span class="reply-text"></span>
+            </div>
+            <button
+              type="button"
+              id="edit-cancel"
+              class="reply-cancel"
+              title="Отменить редактирование"
             >
               ✕
             </button>
@@ -218,6 +453,15 @@
     title="Эмодзи и стикеры"
   >
     😄
+  </button>
+  <button
+    type="button"
+    id="clear-message-button"
+    class="icon-button clear-message-button"
+    title="Очистить строку"
+    aria-label="Очистить строку ввода"
+  >
+    ✕
   </button>
   <input
     id="attachment-input"
@@ -254,17 +498,106 @@
 </div>
 <div id="attachment-preview" class="attachment-preview hidden"></div>
 <div id="media-lightbox" class="media-lightbox hidden">
-  <button type="button" class="lightbox-close" aria-label="Закрыть">✕</button>
-  <img id="lightbox-image" alt="Просмотр изображения" />
+  <div class="lightbox-content">
+    <button type="button" class="lightbox-close" aria-label="Закрыть">✕</button>
+    <img id="lightbox-image" alt="Просмотр изображения" />
+  </div>
 </div>
 
         </main>
       </div>
     </div>
 
-    <div id="profile-modal" class="profile-modal hidden" role="dialog" aria-modal="true">
-      <div class="profile-card">
-        <button type="button" id="profile-close" class="profile-close" aria-label="Закрыть карточку">
+    <div id="self-profile-modal" class="profile-modal hidden" role="dialog" aria-modal="true">
+      <div class="profile-card profile-card--self">
+        <button type="button" id="self-profile-close" class="profile-close" aria-label="Закрыть профиль">
+          ✕
+        </button>
+        <div class="self-profile-title">Профиль</div>
+        <img
+          id="self-profile-avatar-preview"
+          class="profile-avatar self-profile-avatar"
+          alt="Ваш аватар"
+        />
+        <label class="profile-action self-profile-upload-label">
+          <input id="self-profile-avatar-upload" type="file" accept="image/*" />
+          Сменить фото
+        </label>
+
+        <label class="self-profile-field">
+          <span>Ник</span>
+          <input id="self-profile-login" type="text" maxlength="20" autocomplete="off" />
+        </label>
+        <div class="self-profile-field self-profile-color-field">
+          <span>Цвет ника</span>
+          <input id="self-profile-color" type="color" value="#38bdf8" />
+        </div>
+        <div class="self-profile-field self-profile-color-field">
+          <span>Цвет ваших сообщений (справа)</span>
+          <div class="self-profile-color-controls">
+            <input id="self-profile-bubble-color" type="color" value="#1f4f74" />
+            <button
+              type="button"
+              id="self-profile-bubble-color-reset"
+              class="self-profile-color-reset"
+            >
+              Сброс
+            </button>
+          </div>
+        </div>
+        <label class="self-profile-field">
+          <span>Позиция ваших сообщений</span>
+          <select id="self-profile-own-message-side">
+            <option value="right" selected>Справа (по умолчанию)</option>
+            <option value="left">Слева</option>
+          </select>
+        </label>
+
+        <label class="self-profile-field">
+          <span>Текущий пароль</span>
+          <input
+            id="self-profile-password-current"
+            type="password"
+            autocomplete="current-password"
+            placeholder="Введите текущий пароль"
+          />
+        </label>
+        <label class="self-profile-field">
+          <span>Новый пароль</span>
+          <input
+            id="self-profile-password-new"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Введите новый пароль"
+          />
+        </label>
+        <label class="self-profile-field">
+          <span>Подтвердите новый пароль</span>
+          <input
+            id="self-profile-password-confirm"
+            type="password"
+            autocomplete="new-password"
+            placeholder="Повторите новый пароль"
+          />
+        </label>
+
+        <div class="profile-actions">
+          <button type="button" id="self-profile-password-change" class="profile-action">
+            Сменить пароль
+          </button>
+          <button type="button" id="self-profile-save" class="profile-action profile-action--primary">
+            Сохранить
+          </button>
+        </div>
+
+        <div class="self-profile-hidden-title">Скрытые диалоги</div>
+        <ul id="hidden-dialogs-list" class="hidden-dialogs-list"></ul>
+      </div>
+    </div>
+
+	    <div id="profile-modal" class="profile-modal hidden" role="dialog" aria-modal="true">
+	      <div class="profile-card">
+	        <button type="button" id="profile-close" class="profile-close" aria-label="Закрыть карточку">
           ✕
         </button>
         <div id="profile-avatar-view" class="profile-avatar-view hidden">
@@ -287,11 +620,77 @@
           <button type="button" id="profile-public" class="profile-action">
             Написать в общий чат
           </button>
-        </div>
-      </div>
-    </div>
+	        </div>
+	      </div>
+	    </div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="app.js"></script>
+	    <div id="contact-search-modal" class="profile-modal hidden" role="dialog" aria-modal="true">
+	      <div class="profile-card contact-search-card">
+	        <button
+	          type="button"
+	          id="contact-search-close"
+	          class="profile-close"
+	          aria-label="Закрыть поиск контактов"
+	        >
+	          ✕
+	        </button>
+	        <div class="self-profile-title">Поиск контактов</div>
+	        <label class="self-profile-field">
+	          <span>Никнейм</span>
+	          <input
+	            id="contact-search-input"
+	            type="text"
+	            maxlength="20"
+	            autocomplete="off"
+	            placeholder="Введите ник..."
+	          />
+	        </label>
+	        <ul id="contact-search-results" class="contact-search-results"></ul>
+	        <div id="contact-search-loading" class="contact-search-loading hidden">Загрузка...</div>
+	      </div>
+	    </div>
+
+	    <div id="chat-settings-modal" class="profile-modal hidden" role="dialog" aria-modal="true">
+	      <div class="profile-card chat-settings-card">
+	        <button
+	          type="button"
+	          id="chat-settings-close"
+	          class="profile-close"
+	          aria-label="Закрыть настройки чата"
+	        >
+	          ✕
+	        </button>
+	        <div class="self-profile-title">Настройки чата</div>
+	        <img
+	          id="chat-settings-avatar-preview"
+	          class="profile-avatar self-profile-avatar"
+	          alt="Аватар чата"
+	        />
+	        <label class="profile-action self-profile-upload-label">
+	          <input id="chat-settings-avatar-upload" type="file" accept="image/*" />
+	          Сменить аватар
+	        </label>
+	        <label class="self-profile-field">
+	          <span>Название чата</span>
+	          <input
+	            id="chat-settings-name"
+	            type="text"
+	            maxlength="60"
+	            autocomplete="off"
+	            placeholder="Введите название чата"
+	          />
+	        </label>
+	        <button
+	          type="button"
+	          id="chat-settings-save"
+	          class="profile-action profile-action--primary"
+	        >
+	          Сохранить
+	        </button>
+	      </div>
+	    </div>
+
+	    <script src="/socket.io/socket.io.js"></script>
+	    <script src="app.js?v=20260322_0502"></script>
   </body>
 </html>

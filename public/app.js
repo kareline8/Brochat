@@ -73,12 +73,52 @@ function getColorForLogin(login) {
 }
 
 function hexToRgba(hex, alpha) {
-  const h = hex.replace("#", "");
-  const num = parseInt(h, 16);
-  const r = (num >> 16) & 255;
-  const g = (num >> 8) & 255;
-  const b = num & 255;
+  const rgb = hexToRgb(hex) || { r: 56, g: 189, b: 248 };
+  const r = rgb.r;
+  const g = rgb.g;
+  const b = rgb.b;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function hexToRgb(hex) {
+  const normalized = String(hex || "").trim().replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
+  const num = parseInt(normalized, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+}
+
+function getReadableOwnBubblePalette(hexColor) {
+  const rgb = hexToRgb(hexColor) || { r: 31, g: 79, b: 116 };
+  const toLinear = (value) => {
+    const channel = value / 255;
+    if (channel <= 0.03928) return channel / 12.92;
+    return Math.pow((channel + 0.055) / 1.055, 2.4);
+  };
+  const luminance =
+    0.2126 * toLinear(rgb.r) +
+    0.7152 * toLinear(rgb.g) +
+    0.0722 * toLinear(rgb.b);
+  const isLight = luminance > 0.5;
+
+  if (isLight) {
+    return {
+      text: "#0f172a",
+      muted: "rgba(15, 23, 42, 0.68)",
+      link: "#1d4ed8",
+      checks: "#0284c7",
+    };
+  }
+
+  return {
+    text: "#f8fafc",
+    muted: "rgba(226, 232, 240, 0.78)",
+    link: "#7dd3fc",
+    checks: "#38bdf8",
+  };
 }
 
 const REACTION_EMOJIS = [
@@ -114,11 +154,44 @@ const replyTextEl = replyPreview
   ? replyPreview.querySelector(".reply-text")
   : null;
 const replyCancelBtn = document.getElementById("reply-cancel");
+const editPreview = document.getElementById("edit-preview");
+const editPreviewAuthorEl = editPreview
+  ? editPreview.querySelector(".reply-author")
+  : null;
+const editPreviewTextEl = editPreview
+  ? editPreview.querySelector(".reply-text")
+  : null;
+const editCancelBtn = document.getElementById("edit-cancel");
 
 const loginScreen = document.getElementById("login-screen");
 const chatScreen = document.getElementById("chat-screen");
+const sidebarResizer = document.getElementById("sidebar-resizer");
 const loginForm = document.getElementById("login-form");
 const loginInput = document.getElementById("login");
+const loginPasswordInput = document.getElementById("login-password");
+const registerToggle = document.getElementById("register-toggle");
+const registerForm = document.getElementById("register-form");
+const registerLoginInput = document.getElementById("register-login");
+const registerEmailInput = document.getElementById("register-email");
+const registerPasswordInput = document.getElementById("register-password");
+const registerPasswordConfirmInput = document.getElementById("register-password-confirm");
+const verifyToggle = document.getElementById("verify-toggle");
+const verifyForm = document.getElementById("verify-form");
+const verifyLoginInput = document.getElementById("verify-login");
+const verifyCodeInput = document.getElementById("verify-code");
+const verifySendCodeButton = document.getElementById("verify-send-code");
+const resetToggle = document.getElementById("reset-toggle");
+const resetForm = document.getElementById("reset-form");
+const resetEmailInput = document.getElementById("reset-email");
+const resetCodeInput = document.getElementById("reset-code");
+const resetPasswordInput = document.getElementById("reset-password");
+const resetPasswordConfirmInput = document.getElementById("reset-password-confirm");
+const resetSendCodeButton = document.getElementById("reset-send-code");
+const resetSendCodeHint = document.getElementById("reset-send-code-hint");
+const loginFeedback = document.getElementById("login-feedback");
+const registerFeedback = document.getElementById("register-feedback");
+const verifyFeedback = document.getElementById("verify-feedback");
+const resetFeedback = document.getElementById("reset-feedback");
 const colorInput = document.getElementById("color-input");
 const avatarOptionsEl = document.getElementById("avatar-options");
 const avatarUploadInput = document.getElementById("avatar-upload");
@@ -132,21 +205,35 @@ const avatarCropZoom = document.getElementById("avatar-crop-zoom");
 const avatarCropCancel = document.getElementById("avatar-crop-cancel");
 const avatarCropApply = document.getElementById("avatar-crop-apply");
 const messageForm = document.getElementById("message-form");
+const chatMain = document.querySelector(".chat");
 const messageInput = document.getElementById("message-input");
+const sendButton = messageForm ? messageForm.querySelector(".send-button") : null;
 const messagesList = document.getElementById("messages");
+const homeView = document.getElementById("home-view");
+const notesView = document.getElementById("notes-view");
 const usersList = document.getElementById("users-list");
+const onlineUsersList = document.getElementById("online-users-list");
+const contactsSection = document.getElementById("contacts-section");
 const selfList = document.getElementById("self-user");
+const chatRoomsList = document.getElementById("chat-rooms-list");
+const directDialogsSection = document.getElementById("direct-dialogs-section");
 const directList = document.getElementById("direct-list");
+const onlineUsersSection = document.getElementById("online-users-section");
 const chatStatus = document.getElementById("chat-status");
 const chatTitleText = document.getElementById("chat-title-text");
 const chatContext = document.getElementById("chat-context");
 const backToPublic = document.getElementById("back-to-public");
+const contactSearchButton = document.getElementById("contact-search-button");
+const contactsToggle = document.getElementById("contacts-toggle");
+const dialogsToggle = document.getElementById("dialogs-toggle");
+const onlineToggle = document.getElementById("online-toggle");
 const muteToggle = document.getElementById("mute-toggle");
 const zoomRange = document.getElementById("zoom-range");
 const zoomLabel = document.querySelector(".zoom-label");
 const botsToggle = document.getElementById("bots-toggle");
 const attachButton = document.getElementById("attach-button");
 const emojiButton = document.getElementById("emoji-button");
+const clearMessageButton = document.getElementById("clear-message-button");
 const emojiPanel = document.getElementById("emoji-panel");
 const emojiSearch = document.getElementById("emoji-search");
 const emojiGrid = document.getElementById("emoji-grid");
@@ -155,9 +242,40 @@ const attachmentInput = document.getElementById("attachment-input");
 const attachmentCount = document.getElementById("attachment-count");
 const attachmentPreview = document.getElementById("attachment-preview");
 const unreadIndicator = document.getElementById("unread-indicator");
+const scrollToLatestButton = document.getElementById("scroll-to-latest");
 const notificationStack = document.getElementById("chat-notifications");
 const publicChatShortcut = document.getElementById("public-chat-shortcut");
 const botsToggleLabel = document.querySelector(".bots-toggle");
+const profileButton = document.getElementById("profile-button");
+const logoutButton = document.getElementById("logout-button");
+const chatSettingsButton = document.getElementById("chat-settings-button");
+const contactSearchModal = document.getElementById("contact-search-modal");
+const contactSearchClose = document.getElementById("contact-search-close");
+const contactSearchInput = document.getElementById("contact-search-input");
+const contactSearchResults = document.getElementById("contact-search-results");
+const contactSearchLoading = document.getElementById("contact-search-loading");
+const chatSettingsModal = document.getElementById("chat-settings-modal");
+const chatSettingsClose = document.getElementById("chat-settings-close");
+const chatSettingsAvatarPreview = document.getElementById("chat-settings-avatar-preview");
+const chatSettingsAvatarUpload = document.getElementById("chat-settings-avatar-upload");
+const chatSettingsNameInput = document.getElementById("chat-settings-name");
+const chatSettingsSave = document.getElementById("chat-settings-save");
+const selfProfileModal = document.getElementById("self-profile-modal");
+const selfProfileClose = document.getElementById("self-profile-close");
+const selfProfileAvatarPreview = document.getElementById("self-profile-avatar-preview");
+const selfProfileAvatarOptions = document.getElementById("self-profile-avatar-options");
+const selfProfileAvatarUpload = document.getElementById("self-profile-avatar-upload");
+const selfProfileLoginInput = document.getElementById("self-profile-login");
+const selfProfileColorInput = document.getElementById("self-profile-color");
+const selfProfileBubbleColorInput = document.getElementById("self-profile-bubble-color");
+const selfProfileBubbleColorReset = document.getElementById("self-profile-bubble-color-reset");
+const selfProfileOwnMessageSideSelect = document.getElementById("self-profile-own-message-side");
+const selfProfileCurrentPasswordInput = document.getElementById("self-profile-password-current");
+const selfProfileNewPasswordInput = document.getElementById("self-profile-password-new");
+const selfProfileConfirmPasswordInput = document.getElementById("self-profile-password-confirm");
+const selfProfileChangePasswordButton = document.getElementById("self-profile-password-change");
+const selfProfileSave = document.getElementById("self-profile-save");
+const hiddenDialogsList = document.getElementById("hidden-dialogs-list");
 const profileModal = document.getElementById("profile-modal");
 const profileClose = document.getElementById("profile-close");
 const profileAvatar = document.getElementById("profile-avatar");
@@ -179,14 +297,44 @@ const audioDuration = document.getElementById("audio-duration");
 const audioProgress = document.getElementById("audio-progress");
 const audioClose = document.getElementById("audio-close");
 
+if (notificationStack && notificationStack.parentElement !== document.body) {
+  document.body.appendChild(notificationStack);
+}
+
 // общий флаг: есть ли вообще тестовые боты в этой сборке
-const ENABLE_TEST_BOTS = true;
+const ENABLE_TEST_BOTS = false;
+const AUTH_STORAGE_KEY = "minichat_auth_v2";
+const ACTIVE_CHAT_STORAGE_KEY = "minichat_active_chat_v1";
+const PUBLIC_HISTORY_PAGE_SIZE = 40;
+const PUBLIC_HISTORY_TOP_THRESHOLD = 80;
+const DIRECT_HISTORY_PAGE_SIZE = 40;
+const DIRECT_HISTORY_TOP_THRESHOLD = 80;
+const SEND_COOLDOWN_MS = 3000;
+const HIDDEN_DIRECT_DIALOGS_STORAGE_PREFIX = "minichat_hidden_dialogs_v1";
+const VISIBLE_DIRECT_DIALOGS_STORAGE_PREFIX = "minichat_visible_dialogs_v1";
+const OWN_BUBBLE_COLOR_STORAGE_PREFIX = "minichat_own_bubble_color_v1";
+const OWN_MESSAGE_SIDE_STORAGE_PREFIX = "minichat_own_message_side_v1";
+const NOTES_STORAGE_PREFIX = "minichat_notes_v1";
+const SIDEBAR_WIDTH_STORAGE_KEY = "minichat_sidebar_width_v1";
+const DEFAULT_OWN_BUBBLE_COLOR = "#1f4f74";
+const DEFAULT_OWN_MESSAGE_SIDE = "right";
+const DEFAULT_CHAT_ROOM_ID = "bro_chat_main";
+const DEFAULT_CHAT_ROOM_TITLE = "БРО ЧАТ";
+const CONTACT_SEARCH_PAGE_SIZE = 30;
+const PRESENCE_HEARTBEAT_MS = 8000;
+const SIDEBAR_WIDTH_MIN = 360;
+const SIDEBAR_WIDTH_MAX = 760;
+const SIDEBAR_MIN_CHAT_WIDTH = 420;
+const DEFAULT_MESSAGE_PLACEHOLDER = messageInput?.getAttribute("placeholder") || "Напиши сообщение...";
 
 let currentLogin = null;
 let currentColor = null;
 let currentAvatarId = null;
 let currentAvatar = null;
 let currentAvatarOriginal = null;
+let currentOwnBubbleColor = DEFAULT_OWN_BUBBLE_COLOR;
+let currentOwnMessageSide = DEFAULT_OWN_MESSAGE_SIDE;
+let currentSessionToken = null;
 let selectedAvatarId = avatarCatalog[0]?.id || null;
 let customAvatar = null;
 let customAvatarOriginal = null;
@@ -198,24 +346,1076 @@ let audioCtx = null;
 let botsEnabled = ENABLE_TEST_BOTS;
 let lastUserList = [];
 let replyTarget = null; // { login, text } или null
+let editTarget = null; // { chatType, messageId, originalText, hasAttachments, partner }
 let isUploading = false;
 let attachmentPreviewUrls = [];
+let chatFileDragDepth = 0;
 let isChatActive = false;
 let unreadMessages = [];
 let firstUnreadMessage = null;
-let activeChat = { type: "public", partner: null };
+let activeChat = { type: "home", partner: null };
 let mentionTarget = null;
+let lastJoinSignature = "";
+let lastSentMessageAt = 0;
+const hiddenDirectDialogs = new Set();
+const visibleDirectDialogs = new Set();
+let selfProfileAvatarDraft = null;
+let selfProfileAvatarOriginalDraft = null;
+let selfProfileAvatarIdDraft = null;
+let availableChatRooms = [];
+let currentChatRoomId = DEFAULT_CHAT_ROOM_ID;
+let contactEntries = [];
+let personalNotes = [];
+const contactSearchState = {
+  query: "",
+  nextCursor: 0,
+  total: 0,
+  loading: false,
+  items: [],
+  requestId: 0,
+};
+let contactSearchDebounceTimer = null;
+let chatRoomAvatarDraft = null;
+let chatRoomAvatarOriginalDraft = null;
+let chatRoomAvatarIdDraft = null;
+let chatSettingsSavePending = false;
+let activeChatRenderToken = 0;
+let directUnreadNoticeShown = false;
+const sectionCollapsedState = {
+  contacts: false,
+  dialogs: false,
+  online: false,
+};
+let currentSidebarWidth = SIDEBAR_WIDTH_MIN;
+let sidebarResizeState = null;
 
 function setChatActivity(active) {
   isChatActive = active;
+  syncPresenceActivity();
+  if (typeof updatePublicShortcutVisibility === "function") {
+    updatePublicShortcutVisibility();
+  }
   if (isChatActive) {
     maybeAutoDismissVisibleNotifications();
   }
 }
 
+function isPresenceActiveNow() {
+  return !document.hidden && document.hasFocus() && activeChat.type !== "home";
+}
+
+function syncPresenceActivity() {
+  if (!socket?.connected || !currentLogin) return;
+  socket.emit("setPresenceActivity", { active: isPresenceActiveNow() });
+}
+
+function normalizeLoginValue(value) {
+  return String(value || "").trim().slice(0, 20);
+}
+
+function normalizeHexColor(value, fallback = DEFAULT_OWN_BUBBLE_COLOR) {
+  const candidate = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(candidate)) {
+    return candidate;
+  }
+  return fallback;
+}
+
+function normalizeOwnMessageSide(value, fallback = DEFAULT_OWN_MESSAGE_SIDE) {
+  return String(value || "").toLowerCase() === "left" ? "left" : fallback;
+}
+
+function normalizeKnownColor(value) {
+  const candidate = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(candidate) ? candidate : null;
+}
+
+function getDirectDialogVisualKey(login) {
+  return normalizeLoginValue(login).toLowerCase();
+}
+
+function setDirectDialogVisual(partner, visual = {}) {
+  const key = getDirectDialogVisualKey(partner);
+  if (!key) return;
+  const previous = directDialogVisuals.get(key) || {};
+  const normalizedColor = normalizeKnownColor(visual.color);
+  const normalizedAvatar =
+    typeof visual.avatar === "string" && visual.avatar.trim() ? visual.avatar : null;
+  const normalizedAvatarId =
+    typeof visual.avatarId === "string" && visual.avatarId.trim()
+      ? visual.avatarId.trim()
+      : null;
+  const normalizedAvatarOriginal =
+    typeof visual.avatarOriginal === "string" && visual.avatarOriginal.trim()
+      ? visual.avatarOriginal
+      : normalizedAvatar;
+  directDialogVisuals.set(key, {
+    color: normalizedColor || previous.color || null,
+    avatar: normalizedAvatar || previous.avatar || null,
+    avatarId: normalizedAvatarId || previous.avatarId || null,
+    avatarOriginal:
+      normalizedAvatarOriginal ||
+      previous.avatarOriginal ||
+      normalizedAvatar ||
+      previous.avatar ||
+      null,
+  });
+}
+
+function getDirectDialogVisual(partner) {
+  const key = getDirectDialogVisualKey(partner);
+  if (!key) return null;
+  return directDialogVisuals.get(key) || null;
+}
+
+function normalizeChatRoom(room) {
+  if (!room || typeof room !== "object") return null;
+  const id = String(room.id || "").trim() || DEFAULT_CHAT_ROOM_ID;
+  const title = String(room.title || "").trim() || DEFAULT_CHAT_ROOM_TITLE;
+  const avatar = typeof room.avatar === "string" && room.avatar.trim() ? room.avatar : null;
+  const avatarOriginal =
+    typeof room.avatarOriginal === "string" && room.avatarOriginal.trim()
+      ? room.avatarOriginal
+      : avatar;
+  const avatarId =
+    !avatar && typeof room.avatarId === "string" && room.avatarId.trim()
+      ? room.avatarId.trim()
+      : null;
+  return {
+    id,
+    title,
+    avatar,
+    avatarOriginal,
+    avatarId,
+  };
+}
+
+function getFallbackChatRoom() {
+  const avatar = getAvatarById("cool") || getAvatarForLogin(DEFAULT_CHAT_ROOM_TITLE);
+  return {
+    id: DEFAULT_CHAT_ROOM_ID,
+    title: DEFAULT_CHAT_ROOM_TITLE,
+    avatar,
+    avatarOriginal: avatar,
+    avatarId: "cool",
+  };
+}
+
+function getChatRoomsSafe() {
+  return availableChatRooms.length > 0 ? availableChatRooms : [getFallbackChatRoom()];
+}
+
+function getCurrentChatRoom() {
+  const rooms = getChatRoomsSafe();
+  return (
+    rooms.find((room) => String(room.id || "") === String(currentChatRoomId || "")) ||
+    rooms[0] ||
+    getFallbackChatRoom()
+  );
+}
+
+function applyChatRooms(rooms) {
+  const normalized = Array.isArray(rooms)
+    ? rooms.map((room) => normalizeChatRoom(room)).filter(Boolean)
+    : [];
+  availableChatRooms = normalized.length > 0 ? normalized : [getFallbackChatRoom()];
+  if (!availableChatRooms.some((room) => room.id === currentChatRoomId)) {
+    currentChatRoomId = availableChatRooms[0].id;
+  }
+}
+
+function getHiddenDialogsStorageKey(login = currentLogin) {
+  const normalized = normalizeLoginValue(login).toLowerCase();
+  return `${HIDDEN_DIRECT_DIALOGS_STORAGE_PREFIX}:${normalized}`;
+}
+
+function getVisibleDialogsStorageKey(login = currentLogin) {
+  const normalized = normalizeLoginValue(login).toLowerCase();
+  return `${VISIBLE_DIRECT_DIALOGS_STORAGE_PREFIX}:${normalized}`;
+}
+
+function getOwnBubbleColorStorageKey(login = currentLogin) {
+  const normalized = normalizeLoginValue(login).toLowerCase();
+  return `${OWN_BUBBLE_COLOR_STORAGE_PREFIX}:${normalized}`;
+}
+
+function getOwnMessageSideStorageKey(login = currentLogin) {
+  const normalized = normalizeLoginValue(login).toLowerCase();
+  return `${OWN_MESSAGE_SIDE_STORAGE_PREFIX}:${normalized}`;
+}
+
+function getNotesStorageKey(login = currentLogin) {
+  const normalized = normalizeLoginValue(login).toLowerCase();
+  return `${NOTES_STORAGE_PREFIX}:${normalized}`;
+}
+
+function normalizeStoredNoteEntry(entry, login) {
+  const messageId = entry?.messageId ? String(entry.messageId) : `note-${Date.now()}-${messageIdCounter++}`;
+  return {
+    messageId,
+    login: login || currentLogin || "Вы",
+    color: currentColor || "#38bdf8",
+    text: String(entry?.text || ""),
+    timestamp: entry?.timestamp || new Date().toISOString(),
+    editedAt: entry?.editedAt || null,
+    avatarId: currentAvatarId,
+    avatar: currentAvatar,
+    avatarOriginal: currentAvatarOriginal,
+    attachments: Array.isArray(entry?.attachments) ? entry.attachments : [],
+    replyTo: null,
+    readAll: false,
+    local: true,
+    chatType: "notes",
+  };
+}
+
+function loadPersonalNotes(login = currentLogin) {
+  const normalizedLogin = normalizeLoginValue(login);
+  if (!normalizedLogin) {
+    personalNotes = [];
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(getNotesStorageKey(normalizedLogin));
+    if (!raw) {
+      personalNotes = [];
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      personalNotes = [];
+      return;
+    }
+    personalNotes = parsed.map((entry) => normalizeStoredNoteEntry(entry, normalizedLogin));
+  } catch (_) {
+    personalNotes = [];
+  }
+}
+
+function persistPersonalNotes(login = currentLogin) {
+  const normalizedLogin = normalizeLoginValue(login);
+  if (!normalizedLogin) return;
+  const payload = personalNotes.map((entry) => ({
+    messageId: entry.messageId || "",
+    text: entry.text || "",
+    timestamp: entry.timestamp || new Date().toISOString(),
+    editedAt: entry.editedAt || null,
+    attachments: Array.isArray(entry.attachments) ? entry.attachments : [],
+  }));
+  try {
+    localStorage.setItem(getNotesStorageKey(normalizedLogin), JSON.stringify(payload));
+  } catch (_) {
+    // ignore localStorage errors
+  }
+}
+
+function getNotesHistory() {
+  return Array.isArray(personalNotes) ? personalNotes : [];
+}
+
+function deleteOwnNoteMessage(messageId) {
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId) return false;
+  const beforeLength = personalNotes.length;
+  personalNotes = personalNotes.filter(
+    (entry) => String(entry?.messageId || "") !== normalizedMessageId
+  );
+  if (personalNotes.length === beforeLength) return false;
+  persistPersonalNotes();
+  if (replyTarget?.messageId && String(replyTarget.messageId) === normalizedMessageId) {
+    hideReplyPreview();
+  }
+  renderActiveChat();
+  return true;
+}
+
+function editOwnNoteMessage(messageId, nextText) {
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId) return false;
+  const normalizedText = String(nextText || "").trim();
+  const target = personalNotes.find(
+    (entry) => String(entry?.messageId || "") === normalizedMessageId
+  );
+  if (!target) return false;
+  const hasAttachments = Array.isArray(target.attachments) && target.attachments.length > 0;
+  if (!normalizedText && !hasAttachments) {
+    pushChatNotification({
+      title: "Редактирование",
+      body: "Нельзя оставить сообщение пустым.",
+      autoDismissMs: 2200,
+      autoDismissWhenVisible: true,
+    });
+    return false;
+  }
+  if (normalizedText === String(target.text || "").trim()) return false;
+  target.text = normalizedText;
+  target.editedAt = new Date().toISOString();
+  persistPersonalNotes();
+  if (replyTarget?.messageId && String(replyTarget.messageId) === normalizedMessageId) {
+    replyTarget.text = normalizedText;
+    showReplyPreview();
+  }
+  if (activeChat.type === "notes") {
+    updateRenderedEditedMessage(target, { chatType: "notes" });
+  }
+  return true;
+}
+
+function readOwnBubbleColor(login = currentLogin) {
+  if (!normalizeLoginValue(login)) return DEFAULT_OWN_BUBBLE_COLOR;
+  try {
+    return normalizeHexColor(
+      localStorage.getItem(getOwnBubbleColorStorageKey(login)),
+      DEFAULT_OWN_BUBBLE_COLOR
+    );
+  } catch (_) {
+    return DEFAULT_OWN_BUBBLE_COLOR;
+  }
+}
+
+function setOwnBubbleColor(color, { persist = true, login = currentLogin } = {}) {
+  currentOwnBubbleColor = normalizeHexColor(color, DEFAULT_OWN_BUBBLE_COLOR);
+  if (!persist || !normalizeLoginValue(login)) return;
+  try {
+    localStorage.setItem(
+      getOwnBubbleColorStorageKey(login),
+      currentOwnBubbleColor
+    );
+  } catch (_) {
+    // ignore localStorage errors
+  }
+}
+
+function readOwnMessageSide(login = currentLogin) {
+  if (!normalizeLoginValue(login)) return DEFAULT_OWN_MESSAGE_SIDE;
+  try {
+    return normalizeOwnMessageSide(
+      localStorage.getItem(getOwnMessageSideStorageKey(login)),
+      DEFAULT_OWN_MESSAGE_SIDE
+    );
+  } catch (_) {
+    return DEFAULT_OWN_MESSAGE_SIDE;
+  }
+}
+
+function applyOwnMessageSideClass() {
+  if (!messagesList) return;
+  messagesList.classList.toggle("is-own-left", currentOwnMessageSide === "left");
+}
+
+function setOwnMessageSide(side, { persist = true, login = currentLogin } = {}) {
+  currentOwnMessageSide = normalizeOwnMessageSide(side, DEFAULT_OWN_MESSAGE_SIDE);
+  applyOwnMessageSideClass();
+  if (!persist || !normalizeLoginValue(login)) return;
+  try {
+    localStorage.setItem(
+      getOwnMessageSideStorageKey(login),
+      currentOwnMessageSide
+    );
+  } catch (_) {
+    // ignore localStorage errors
+  }
+}
+
+function readSidebarWidth() {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return SIDEBAR_WIDTH_MIN;
+    return parsed;
+  } catch (_) {
+    return SIDEBAR_WIDTH_MIN;
+  }
+}
+
+function getSidebarMaxWidth() {
+  const panelWidth = Number(chatScreen?.clientWidth || window.innerWidth || 0);
+  const availableMax = panelWidth - SIDEBAR_MIN_CHAT_WIDTH;
+  return Math.max(
+    SIDEBAR_WIDTH_MIN,
+    Math.min(SIDEBAR_WIDTH_MAX, Number.isFinite(availableMax) ? availableMax : SIDEBAR_WIDTH_MAX)
+  );
+}
+
+function clampSidebarWidth(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return SIDEBAR_WIDTH_MIN;
+  return Math.max(SIDEBAR_WIDTH_MIN, Math.min(getSidebarMaxWidth(), Math.round(numeric)));
+}
+
+function applySidebarWidth(width, { persist = true } = {}) {
+  const clamped = clampSidebarWidth(width);
+  currentSidebarWidth = clamped;
+  if (chatScreen) {
+    chatScreen.style.setProperty("--sidebar-width", `${clamped}px`);
+  }
+  if (sidebarResizer) {
+    sidebarResizer.setAttribute("aria-valuemin", String(SIDEBAR_WIDTH_MIN));
+    sidebarResizer.setAttribute("aria-valuemax", String(getSidebarMaxWidth()));
+    sidebarResizer.setAttribute("aria-valuenow", String(clamped));
+  }
+  if (!persist) return;
+  try {
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped));
+  } catch (_) {
+    // ignore localStorage errors
+  }
+}
+
+function stopSidebarResize({ persist = true } = {}) {
+  if (!sidebarResizeState) return;
+  sidebarResizeState = null;
+  if (sidebarResizer) {
+    sidebarResizer.classList.remove("is-dragging");
+  }
+  document.body.classList.remove("is-sidebar-resizing");
+  if (persist) {
+    applySidebarWidth(currentSidebarWidth, { persist: true });
+  }
+}
+
+function initializeSidebarResize() {
+  applySidebarWidth(readSidebarWidth(), { persist: false });
+  if (!sidebarResizer || !chatScreen) return;
+
+  sidebarResizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (window.matchMedia("(max-width: 720px)").matches) return;
+    event.preventDefault();
+    sidebarResizeState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: currentSidebarWidth,
+    };
+    sidebarResizer.classList.add("is-dragging");
+    document.body.classList.add("is-sidebar-resizing");
+    sidebarResizer.setPointerCapture?.(event.pointerId);
+  });
+
+  sidebarResizer.addEventListener("keydown", (event) => {
+    if (window.matchMedia("(max-width: 720px)").matches) return;
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      applySidebarWidth(currentSidebarWidth + 20, { persist: true });
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      applySidebarWidth(currentSidebarWidth - 20, { persist: true });
+    }
+  });
+
+  window.addEventListener("pointermove", (event) => {
+    if (!sidebarResizeState) return;
+    if (event.pointerId !== sidebarResizeState.pointerId) return;
+    const nextWidth = sidebarResizeState.startWidth + (event.clientX - sidebarResizeState.startX);
+    applySidebarWidth(nextWidth, { persist: false });
+  });
+
+  const finalizeResize = (event) => {
+    if (!sidebarResizeState) return;
+    if (event.pointerId !== sidebarResizeState.pointerId) return;
+    stopSidebarResize({ persist: true });
+  };
+
+  window.addEventListener("pointerup", finalizeResize);
+  window.addEventListener("pointercancel", finalizeResize);
+}
+
+initializeSidebarResize();
+
+function persistHiddenDirectDialogs() {
+  if (!currentLogin) return;
+  try {
+    localStorage.setItem(
+      getHiddenDialogsStorageKey(),
+      JSON.stringify(Array.from(hiddenDirectDialogs))
+    );
+  } catch (_) {
+    // игнорируем ошибки localStorage
+  }
+}
+
+function persistVisibleDirectDialogs() {
+  if (!currentLogin) return;
+  try {
+    localStorage.setItem(
+      getVisibleDialogsStorageKey(),
+      JSON.stringify(Array.from(visibleDirectDialogs))
+    );
+  } catch (_) {
+    // ignore localStorage errors
+  }
+}
+
+function loadHiddenDirectDialogs() {
+  hiddenDirectDialogs.clear();
+  if (!currentLogin) return;
+  const raw = localStorage.getItem(getHiddenDialogsStorageKey());
+  if (!raw) return;
+  try {
+    const items = JSON.parse(raw);
+    if (!Array.isArray(items)) return;
+    items.forEach((entry) => {
+      const partner = normalizeLoginValue(entry);
+      if (!partner || isSameLogin(partner, currentLogin)) return;
+      hiddenDirectDialogs.add(partner);
+    });
+  } catch (_) {
+    // ignore
+  }
+}
+
+function loadVisibleDirectDialogs() {
+  visibleDirectDialogs.clear();
+  if (!currentLogin) return;
+  const raw = localStorage.getItem(getVisibleDialogsStorageKey());
+  if (!raw) return;
+  try {
+    const items = JSON.parse(raw);
+    if (!Array.isArray(items)) return;
+    items.forEach((entry) => {
+      const partner = normalizeLoginValue(entry);
+      if (!partner || isSameLogin(partner, currentLogin)) return;
+      visibleDirectDialogs.add(partner);
+    });
+  } catch (_) {
+    // ignore
+  }
+}
+
+function addVisibleDirectDialog(partner) {
+  const normalized = normalizeLoginValue(partner);
+  if (!normalized || isSameLogin(normalized, currentLogin)) return;
+  if (Array.from(visibleDirectDialogs).some((item) => isSameLogin(item, normalized))) return;
+  visibleDirectDialogs.add(normalized);
+  persistVisibleDirectDialogs();
+}
+
+function removeVisibleDirectDialog(partner) {
+  const normalized = normalizeLoginValue(partner);
+  if (!normalized) return;
+  for (const item of visibleDirectDialogs) {
+    if (isSameLogin(item, normalized)) {
+      visibleDirectDialogs.delete(item);
+    }
+  }
+  persistVisibleDirectDialogs();
+}
+
+function findHiddenDialogKey(partner) {
+  const normalized = normalizeLoginValue(partner);
+  if (!normalized) return null;
+  for (const item of hiddenDirectDialogs) {
+    if (isSameLogin(item, normalized)) {
+      return item;
+    }
+  }
+  return null;
+}
+
+function isDirectDialogHidden(partner) {
+  return Boolean(findHiddenDialogKey(partner));
+}
+
+function hideDirectDialog(partner) {
+  const normalized = normalizeLoginValue(partner);
+  if (!normalized || isSameLogin(normalized, currentLogin)) return;
+  if (findHiddenDialogKey(normalized)) return;
+  hiddenDirectDialogs.add(normalized);
+  removeVisibleDirectDialog(normalized);
+  persistHiddenDirectDialogs();
+  renderHiddenDialogsList();
+}
+
+function restoreHiddenDialog(partner, { openChat = false, makeVisible = true } = {}) {
+  const key = findHiddenDialogKey(partner);
+  if (!key) return false;
+  hiddenDirectDialogs.delete(key);
+  if (makeVisible) {
+    addVisibleDirectDialog(key);
+  }
+  persistHiddenDirectDialogs();
+  renderHiddenDialogsList();
+  renderUserList();
+  if (openChat) {
+    setActiveChat("direct", key);
+  }
+  return true;
+}
+
+function getJoinPayload() {
+  return {
+    sessionToken: currentSessionToken || null,
+    active: isPresenceActiveNow(),
+  };
+}
+
+function persistAuthState() {
+  if (!currentLogin || !currentSessionToken) {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    return;
+  }
+  const payload = {
+    login: currentLogin,
+    sessionToken: currentSessionToken,
+    color: currentColor || "#38bdf8",
+    avatarId: currentAvatarId || null,
+    avatar: currentAvatar || null,
+    avatarOriginal: currentAvatarOriginal || null,
+  };
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
+  } catch (_) {
+    // игнорируем ошибки localStorage (например, quota exceeded)
+  }
+}
+
+function readAuthState() {
+  const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") return null;
+    const login = normalizeLoginValue(data.login);
+    const sessionToken =
+      typeof data.sessionToken === "string" && data.sessionToken.trim()
+        ? data.sessionToken.trim()
+        : "";
+    if (!login || !sessionToken) return null;
+    const color = String(data.color || "#38bdf8").trim() || "#38bdf8";
+    const avatar = typeof data.avatar === "string" && data.avatar.trim() ? data.avatar : null;
+    const avatarOriginal =
+      typeof data.avatarOriginal === "string" && data.avatarOriginal.trim()
+        ? data.avatarOriginal
+        : avatar;
+    const avatarId =
+      !avatar && typeof data.avatarId === "string" && data.avatarId.trim()
+        ? data.avatarId.trim()
+        : null;
+    return { login, sessionToken, color, avatarId, avatar, avatarOriginal };
+  } catch (_) {
+    return null;
+  }
+}
+
+function applyAuthToSession(authState) {
+  currentLogin = authState.login;
+  currentSessionToken = authState.sessionToken || null;
+  currentColor = authState.color || "#38bdf8";
+  currentAvatar = authState.avatar || null;
+  currentAvatarOriginal = authState.avatarOriginal || authState.avatar || null;
+  currentAvatarId = authState.avatar ? null : authState.avatarId || avatarCatalog[0]?.id || null;
+  currentOwnBubbleColor = readOwnBubbleColor(currentLogin);
+  currentOwnMessageSide = readOwnMessageSide(currentLogin);
+  applyOwnMessageSideClass();
+  loadHiddenDirectDialogs();
+  loadVisibleDirectDialogs();
+  loadPersonalNotes(currentLogin);
+}
+
+function applyAuthToLoginForm(authState) {
+  if (loginInput) {
+    loginInput.value = authState.login;
+  }
+  if (registerLoginInput) {
+    registerLoginInput.value = authState.login;
+  }
+  if (colorInput) {
+    colorInput.value = authState.color || "#38bdf8";
+  }
+  if (authState.avatar) {
+    updateCustomAvatarPreview(authState.avatar);
+    customAvatarOriginal = authState.avatarOriginal || authState.avatar;
+    return;
+  }
+  selectedAvatarId = authState.avatarId || avatarCatalog[0]?.id || null;
+  clearCustomAvatar();
+  if (avatarOptionsEl && selectedAvatarId) {
+    avatarOptionsEl.querySelectorAll(".avatar-option").forEach((el) => {
+      el.classList.toggle("is-selected", el.dataset.avatarId === selectedAvatarId);
+    });
+  }
+}
+
+const authFeedbackByScope = {
+  login: loginFeedback,
+  register: registerFeedback,
+  verify: verifyFeedback,
+  reset: resetFeedback,
+};
+
+function clearAuthFeedback(scope) {
+  const target = authFeedbackByScope[scope];
+  if (!target) return;
+  target.textContent = "";
+  target.classList.remove("is-error", "is-success", "is-info");
+  target.classList.add("hidden");
+}
+
+function clearAllAuthFeedback() {
+  clearAuthFeedback("login");
+  clearAuthFeedback("register");
+  clearAuthFeedback("verify");
+  clearAuthFeedback("reset");
+}
+
+function showAuthFeedback(scope, message, tone = "error") {
+  const target = authFeedbackByScope[scope];
+  if (!target) return;
+  target.textContent = message || "";
+  target.classList.remove("is-error", "is-success", "is-info", "hidden");
+  if (tone === "success") {
+    target.classList.add("is-success");
+  } else if (tone === "info") {
+    target.classList.add("is-info");
+  } else {
+    target.classList.add("is-error");
+  }
+}
+
+function showAuthError(message, scope = "login") {
+  showAuthFeedback(scope, message || "Ошибка авторизации.", "error");
+}
+
+function updateResetSendCodeAvailability() {
+  if (!resetSendCodeButton) return;
+  const hasNewPassword = String(resetPasswordInput?.value || "").trim().length > 0;
+  const hasConfirmPassword = String(resetPasswordConfirmInput?.value || "").trim().length > 0;
+  const shouldDisable = hasNewPassword && hasConfirmPassword;
+  resetSendCodeButton.disabled = shouldDisable;
+  if (resetSendCodeHint) {
+    resetSendCodeHint.classList.toggle("hidden", !shouldDisable);
+  }
+  if (shouldDisable) {
+    resetSendCodeButton.title =
+      "Очистите оба поля нового пароля, чтобы снова отправить код.";
+  } else {
+    resetSendCodeButton.removeAttribute("title");
+  }
+}
+
+function validateStrongPasswordClient(password) {
+  const value = String(password || "");
+  if (value.length < 8) return "Минимум 8 символов.";
+  if (!/[A-Za-zА-Яа-яЁё]/.test(value)) return "Добавьте хотя бы одну букву.";
+  if (!/\d/.test(value)) return "Добавьте хотя бы одну цифру.";
+  return "";
+}
+
+function emitWithAck(eventName, payload, timeoutMs = 12000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve({ ok: false, message: "Сервер не ответил вовремя. Повторите попытку." });
+    }, timeoutMs);
+
+    socket.emit(eventName, payload, (response) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (!response || typeof response !== "object") {
+        resolve({ ok: false, message: "Некорректный ответ сервера." });
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function applyServerUserToSession(user, { sessionToken = null } = {}) {
+  if (sessionToken) {
+    currentSessionToken = sessionToken;
+  }
+  currentLogin = normalizeLoginValue(user?.login || currentLogin);
+  currentColor = user?.color || "#38bdf8";
+  currentAvatar = user?.avatar || null;
+  currentAvatarOriginal = user?.avatarOriginal || user?.avatar || null;
+  currentAvatarId = currentAvatar ? null : user?.avatarId || avatarCatalog[0]?.id || null;
+  currentOwnBubbleColor = readOwnBubbleColor(currentLogin);
+  currentOwnMessageSide = readOwnMessageSide(currentLogin);
+  applyOwnMessageSideClass();
+  loadHiddenDirectDialogs();
+  loadVisibleDirectDialogs();
+  loadPersonalNotes(currentLogin);
+
+  applyAuthToLoginForm({
+    login: currentLogin || "",
+    color: currentColor,
+    avatarId: currentAvatarId,
+    avatar: currentAvatar,
+    avatarOriginal: currentAvatarOriginal,
+  });
+  updateCurrentUserAvatarInLoadedHistories();
+  persistAuthState();
+}
+
+function readActiveChatState() {
+  const raw = localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") return null;
+    if (data.type === "direct") {
+      const partner = String(data.partner || "").trim();
+      if (partner) {
+        return { type: "direct", partner };
+      }
+    }
+    if (data.type === "public") {
+      return { type: "public", partner: null };
+    }
+    if (data.type === "notes") {
+      return { type: "notes", partner: null };
+    }
+    return { type: "home", partner: null };
+  } catch (_) {
+    return null;
+  }
+}
+
+function persistActiveChatState() {
+  const payload = activeChat.type === "direct" && activeChat.partner
+    ? { type: "direct", partner: activeChat.partner }
+    : activeChat.type === "public"
+      ? { type: "public", partner: null }
+      : activeChat.type === "notes"
+        ? { type: "notes", partner: null }
+      : { type: "home", partner: null };
+  localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function joinCurrentUserIfNeeded(force = false) {
+  if (!currentLogin || !currentSessionToken || !socket.connected) return;
+  const signature = `${socket.id || ""}:${normalizeLoginValue(currentLogin).toLowerCase()}:${currentSessionToken.slice(0, 10)}`;
+  if (!force && lastJoinSignature === signature) return;
+  directUnreadNoticeShown = false;
+  socket.emit("join", getJoinPayload(), (response) => {
+    if (!response?.ok) {
+      lastJoinSignature = "";
+      if (response?.reason === "invalid_session") {
+        performLogout({ skipServer: true });
+        showAuthError(response?.message || "Сессия истекла. Войдите заново.", "login");
+      }
+      return;
+    }
+    if (response?.user) {
+      applyServerUserToSession(response.user);
+    }
+    socket.emit("loadContacts", {}, (contactsResponse) => {
+      if (!contactsResponse?.ok) return;
+      applyContacts(contactsResponse.items);
+      renderUserList();
+    });
+    lastJoinSignature = signature;
+    syncPresenceActivity();
+  });
+}
+
+function openChatScreen({ restoreLastChat = false } = {}) {
+  if (loginScreen) {
+    loginScreen.classList.add("hidden");
+  }
+  if (chatScreen) {
+    chatScreen.classList.remove("hidden");
+  }
+  setChatActivity(!document.hidden);
+  setActiveChat("home");
+}
+
+function performLogout({ skipServer = false } = {}) {
+  const logoutToken = currentSessionToken;
+  if (!skipServer && logoutToken && socket.connected) {
+    socket.emit("logout", { sessionToken: logoutToken });
+  }
+  currentLogin = null;
+  currentSessionToken = null;
+  currentColor = null;
+  currentAvatarId = null;
+  currentAvatar = null;
+  currentAvatarOriginal = null;
+  currentOwnBubbleColor = DEFAULT_OWN_BUBBLE_COLOR;
+  currentOwnMessageSide = DEFAULT_OWN_MESSAGE_SIDE;
+  mentionTarget = null;
+  lastJoinSignature = "";
+
+  publicHistory.length = 0;
+  publicHistoryState.nextCursor = null;
+  publicHistoryState.total = 0;
+  publicHistoryState.isLoading = false;
+  publicHistoryState.isInitialized = false;
+  directHistories.clear();
+  directUnreadCounts.clear();
+  directHistoryState.clear();
+  directDialogVisuals.clear();
+  hiddenDirectDialogs.clear();
+  visibleDirectDialogs.clear();
+  directUnreadNoticeShown = false;
+  personalNotes = [];
+  lastSentMessageAt = 0;
+  lastUserList = [];
+  contactEntries = [];
+  availableChatRooms = [];
+  currentChatRoomId = DEFAULT_CHAT_ROOM_ID;
+  contactSearchState.query = "";
+  contactSearchState.nextCursor = 0;
+  contactSearchState.total = 0;
+  contactSearchState.loading = false;
+  contactSearchState.items = [];
+  contactSearchState.requestId = 0;
+  chatRoomAvatarDraft = null;
+  chatRoomAvatarOriginalDraft = null;
+  chatRoomAvatarIdDraft = null;
+  chatSettingsSavePending = false;
+  if (contactSearchDebounceTimer) {
+    clearTimeout(contactSearchDebounceTimer);
+    contactSearchDebounceTimer = null;
+  }
+
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY);
+
+  if (messagesList) {
+    messagesList.innerHTML = "";
+  }
+  if (usersList) {
+    usersList.innerHTML = "";
+  }
+  if (onlineUsersList) {
+    onlineUsersList.innerHTML = "";
+  }
+  if (directList) {
+    directList.innerHTML = "";
+  }
+  if (chatRoomsList) {
+    chatRoomsList.innerHTML = "";
+  }
+  if (selfList) {
+    selfList.innerHTML = "";
+  }
+  if (contactSearchResults) {
+    contactSearchResults.innerHTML = "";
+  }
+
+  clearUnreadMessages();
+  closeDmPopup();
+  hideReplyPreview();
+  cancelMessageEdit({ clearInput: true });
+  closeProfileCard();
+  closeSelfProfileModal();
+  closeProfileAvatarView();
+  closeContactSearchModal();
+  closeChatSettingsModal();
+  hideEmojiPanel();
+  closeReactionPicker();
+
+  clearCustomAvatar();
+  selectedAvatarId = avatarCatalog[0]?.id || null;
+  if (avatarOptionsEl && selectedAvatarId) {
+    avatarOptionsEl.querySelectorAll(".avatar-option").forEach((el) => {
+      el.classList.toggle("is-selected", el.dataset.avatarId === selectedAvatarId);
+    });
+  }
+
+  if (loginInput) {
+    loginInput.value = "";
+  }
+  if (loginPasswordInput) {
+    loginPasswordInput.value = "";
+  }
+  if (registerLoginInput) {
+    registerLoginInput.value = "";
+  }
+  if (registerEmailInput) {
+    registerEmailInput.value = "";
+  }
+  if (registerPasswordInput) {
+    registerPasswordInput.value = "";
+  }
+  if (registerPasswordConfirmInput) {
+    registerPasswordConfirmInput.value = "";
+  }
+  if (verifyLoginInput) {
+    verifyLoginInput.value = "";
+  }
+  if (verifyCodeInput) {
+    verifyCodeInput.value = "";
+  }
+  if (resetEmailInput) {
+    resetEmailInput.value = "";
+  }
+  if (resetCodeInput) {
+    resetCodeInput.value = "";
+  }
+  if (resetPasswordInput) {
+    resetPasswordInput.value = "";
+  }
+  if (resetPasswordConfirmInput) {
+    resetPasswordConfirmInput.value = "";
+  }
+  if (selfProfileOwnMessageSideSelect) {
+    selfProfileOwnMessageSideSelect.value = DEFAULT_OWN_MESSAGE_SIDE;
+  }
+  clearAllAuthFeedback();
+  applyOwnMessageSideClass();
+  updateResetSendCodeAvailability();
+  if (colorInput) {
+    colorInput.value = "#38bdf8";
+  }
+  if (registerForm) {
+    registerForm.classList.add("hidden");
+  }
+  if (registerToggle) {
+    registerToggle.textContent = "Регистрация";
+  }
+  if (verifyForm) {
+    verifyForm.classList.add("hidden");
+  }
+  if (verifyToggle) {
+    verifyToggle.textContent = "Подтвердить почту";
+  }
+  if (resetForm) {
+    resetForm.classList.add("hidden");
+  }
+  if (resetToggle) {
+    resetToggle.textContent = "Восстановить пароль";
+  }
+  if (messageInput) {
+    messageInput.value = "";
+    autoSizeTextarea();
+  }
+
+  activeChat = { type: "home", partner: null };
+  updatePublicShortcutVisibility();
+  updateChatHeader();
+  updateMuteToggle();
+
+  if (chatScreen) {
+    chatScreen.classList.add("hidden");
+  }
+  if (loginScreen) {
+    loginScreen.classList.remove("hidden");
+  }
+  if (loginInput) {
+    loginInput.focus();
+  }
+
+  if (socket.connected) {
+    socket.disconnect();
+  }
+}
+
 const publicHistory = [];
+const publicHistoryState = {
+  nextCursor: null,
+  total: 0,
+  isLoading: false,
+  isInitialized: false,
+};
 const directHistories = new Map();
 const directUnreadCounts = new Map();
+const directHistoryState = new Map();
+const directDialogVisuals = new Map();
 
 const FAKE_BOT_NAMES = [
   "Аня", "Кирилл", "Сергей", "Марина", "Игорь",
@@ -223,6 +1423,10 @@ const FAKE_BOT_NAMES = [
   "Никита", "Света", "Костя", "Вика", "Рома",
   "Надя", "Антон", "Катя", "Женя", "Маша"
 ];
+
+if (lightbox && lightbox.parentElement !== document.body) {
+  document.body.appendChild(lightbox);
+}
 
 function renderAvatarOptions() {
   if (!avatarOptionsEl) return;
@@ -265,6 +1469,318 @@ let cropMinScale = 1;
 let cropOffsetX = 0;
 let cropOffsetY = 0;
 let cropDragState = null;
+let avatarCropTarget = "login";
+
+function getResolvedSelfAvatarPreview() {
+  if (selfProfileAvatarDraft) {
+    return selfProfileAvatarDraft;
+  }
+  return (
+    currentAvatar ||
+    getAvatarById(selfProfileAvatarIdDraft || currentAvatarId) ||
+    getAvatarForLogin(currentLogin || "guest")
+  );
+}
+
+function syncSelfProfileAvatarPreview() {
+  if (!selfProfileAvatarPreview) return;
+  const preview = getResolvedSelfAvatarPreview();
+  selfProfileAvatarPreview.src = preview;
+  selfProfileAvatarPreview.dataset.full = selfProfileAvatarOriginalDraft || preview;
+}
+
+function getResolvedChatRoomAvatarPreview() {
+  if (chatRoomAvatarDraft) {
+    return chatRoomAvatarDraft;
+  }
+  const room = getCurrentChatRoom();
+  return (
+    room.avatar ||
+    getAvatarById(chatRoomAvatarIdDraft || room.avatarId) ||
+    getAvatarForLogin(room.title || DEFAULT_CHAT_ROOM_TITLE)
+  );
+}
+
+function syncChatSettingsAvatarPreview() {
+  if (!chatSettingsAvatarPreview) return;
+  const preview = getResolvedChatRoomAvatarPreview();
+  chatSettingsAvatarPreview.src = preview;
+  chatSettingsAvatarPreview.dataset.full = chatRoomAvatarOriginalDraft || preview;
+}
+
+function updateCurrentUserAvatarInLoadedHistories() {
+  if (!currentLogin) return;
+
+  const applyToEntry = (entry) => {
+    if (!entry || !isSameLogin(entry.login, currentLogin)) return;
+    entry.avatar = currentAvatar || null;
+    entry.avatarOriginal = currentAvatarOriginal || currentAvatar || null;
+    entry.avatarId = currentAvatar ? null : currentAvatarId || null;
+  };
+
+  publicHistory.forEach((entry) => applyToEntry(entry));
+  directHistories.forEach((items) => {
+    if (!Array.isArray(items)) return;
+    items.forEach((entry) => applyToEntry(entry));
+  });
+}
+
+function renderSelfProfileAvatarOptions() {
+  if (!selfProfileAvatarOptions) return;
+  selfProfileAvatarOptions.innerHTML = "";
+
+  avatarCatalog.forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "avatar-option";
+    button.dataset.avatarId = option.id;
+    button.classList.toggle(
+      "is-selected",
+      !selfProfileAvatarDraft && option.id === selfProfileAvatarIdDraft
+    );
+
+    const img = document.createElement("img");
+    img.src = option.uri;
+    img.alt = option.id;
+    button.appendChild(img);
+
+    button.addEventListener("click", () => {
+      selfProfileAvatarDraft = null;
+      selfProfileAvatarOriginalDraft = null;
+      selfProfileAvatarIdDraft = option.id;
+      renderSelfProfileAvatarOptions();
+      syncSelfProfileAvatarPreview();
+    });
+
+    selfProfileAvatarOptions.appendChild(button);
+  });
+}
+
+function renderHiddenDialogsList() {
+  if (!hiddenDialogsList) return;
+  hiddenDialogsList.innerHTML = "";
+
+  const items = Array.from(hiddenDirectDialogs).sort((a, b) =>
+    a.localeCompare(b, "ru", { sensitivity: "base" })
+  );
+  if (items.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "hidden-dialog-empty";
+    empty.textContent = "Нет скрытых диалогов";
+    hiddenDialogsList.appendChild(empty);
+    return;
+  }
+
+  items.forEach((partner) => {
+    const row = document.createElement("li");
+    row.className = "hidden-dialog-item";
+
+    const nameEl = document.createElement("span");
+    nameEl.textContent = partner;
+    row.appendChild(nameEl);
+
+    const restoreBtn = document.createElement("button");
+    restoreBtn.type = "button";
+    restoreBtn.textContent = "Просмотреть";
+    restoreBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      restoreHiddenDialog(partner, { openChat: true });
+      closeSelfProfileModal();
+    });
+    row.appendChild(restoreBtn);
+
+    row.addEventListener("click", () => {
+      restoreHiddenDialog(partner, { openChat: true });
+      closeSelfProfileModal();
+    });
+
+    hiddenDialogsList.appendChild(row);
+  });
+}
+
+function closeSelfProfileModal() {
+  if (!selfProfileModal) return;
+  selfProfileModal.classList.add("hidden");
+  if (selfProfileCurrentPasswordInput) selfProfileCurrentPasswordInput.value = "";
+  if (selfProfileNewPasswordInput) selfProfileNewPasswordInput.value = "";
+  if (selfProfileConfirmPasswordInput) selfProfileConfirmPasswordInput.value = "";
+}
+
+function openSelfProfileModal() {
+  if (!selfProfileModal || !currentLogin) return;
+  closeProfileCard();
+  loadHiddenDirectDialogs();
+  selfProfileAvatarDraft = currentAvatar || null;
+  selfProfileAvatarOriginalDraft = currentAvatarOriginal || currentAvatar || null;
+  selfProfileAvatarIdDraft = currentAvatar ? null : currentAvatarId || avatarCatalog[0]?.id || null;
+  if (selfProfileLoginInput) {
+    selfProfileLoginInput.value = currentLogin;
+  }
+  if (selfProfileColorInput) {
+    selfProfileColorInput.value = currentColor || "#38bdf8";
+  }
+  if (selfProfileBubbleColorInput) {
+    selfProfileBubbleColorInput.value = normalizeHexColor(
+      currentOwnBubbleColor,
+      DEFAULT_OWN_BUBBLE_COLOR
+    );
+  }
+  if (selfProfileOwnMessageSideSelect) {
+    selfProfileOwnMessageSideSelect.value = normalizeOwnMessageSide(
+      currentOwnMessageSide,
+      DEFAULT_OWN_MESSAGE_SIDE
+    );
+  }
+  if (selfProfileCurrentPasswordInput) selfProfileCurrentPasswordInput.value = "";
+  if (selfProfileNewPasswordInput) selfProfileNewPasswordInput.value = "";
+  if (selfProfileConfirmPasswordInput) selfProfileConfirmPasswordInput.value = "";
+  renderSelfProfileAvatarOptions();
+  syncSelfProfileAvatarPreview();
+  renderHiddenDialogsList();
+  selfProfileModal.classList.remove("hidden");
+}
+
+async function applySelfProfileChanges() {
+  if (!currentLogin || !currentSessionToken) return;
+  const nextLogin = normalizeLoginValue(selfProfileLoginInput?.value);
+  if (!nextLogin) {
+    pushChatNotification({
+      title: "Профиль",
+      body: "Ник не может быть пустым.",
+      autoDismissMs: 2200,
+      autoDismissWhenVisible: true,
+    });
+    return;
+  }
+
+  const previousLogin = currentLogin;
+  const nextOwnBubbleColor = normalizeHexColor(
+    selfProfileBubbleColorInput?.value,
+    currentOwnBubbleColor || DEFAULT_OWN_BUBBLE_COLOR
+  );
+  const nextOwnMessageSide = normalizeOwnMessageSide(
+    selfProfileOwnMessageSideSelect?.value,
+    currentOwnMessageSide || DEFAULT_OWN_MESSAGE_SIDE
+  );
+  setOwnBubbleColor(nextOwnBubbleColor, { persist: true, login: currentLogin });
+  setOwnMessageSide(nextOwnMessageSide, { persist: true, login: currentLogin });
+  renderActiveChat();
+  const nextAvatar = selfProfileAvatarDraft || null;
+  const nextAvatarOriginal = nextAvatar
+    ? selfProfileAvatarOriginalDraft || nextAvatar
+    : null;
+  const nextAvatarId = nextAvatar
+    ? null
+    : selfProfileAvatarIdDraft || avatarCatalog[0]?.id || null;
+
+  const response = await emitWithAck("updateProfile", {
+    sessionToken: currentSessionToken,
+    login: nextLogin,
+    color: selfProfileColorInput?.value || currentColor || "#38bdf8",
+    avatarId: nextAvatarId,
+    avatar: nextAvatar,
+    avatarOriginal: nextAvatarOriginal,
+  });
+
+  if (!response?.ok) {
+    if (response?.reason === "invalid_session") {
+      performLogout({ skipServer: true });
+      showAuthError(response?.message || "Сессия истекла. Войдите заново.", "login");
+      return;
+    }
+    pushChatNotification({
+      title: "Профиль",
+      body: response?.message || "Не удалось обновить профиль.",
+      autoDismissMs: 2600,
+      autoDismissWhenVisible: true,
+    });
+    return;
+  }
+
+  applyServerUserToSession(response.user);
+
+  if (!isSameLogin(previousLogin, currentLogin)) {
+    localStorage.removeItem(getHiddenDialogsStorageKey(previousLogin));
+    localStorage.removeItem(getVisibleDialogsStorageKey(previousLogin));
+    localStorage.removeItem(getOwnBubbleColorStorageKey(previousLogin));
+    localStorage.removeItem(getOwnMessageSideStorageKey(previousLogin));
+  }
+  setOwnBubbleColor(nextOwnBubbleColor, { persist: true, login: currentLogin });
+  setOwnMessageSide(nextOwnMessageSide, { persist: true, login: currentLogin });
+  persistHiddenDirectDialogs();
+  persistVisibleDirectDialogs();
+  updateCurrentUserAvatarInLoadedHistories();
+  renderUserList();
+  renderActiveChat();
+  closeSelfProfileModal();
+}
+
+async function changeSelfPassword() {
+  if (!currentSessionToken) return;
+  const currentPassword = String(selfProfileCurrentPasswordInput?.value || "").trim();
+  const newPassword = String(selfProfileNewPasswordInput?.value || "").trim();
+  const confirmPassword = String(selfProfileConfirmPasswordInput?.value || "").trim();
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    pushChatNotification({
+      title: "Пароль",
+      body: "Заполните все поля для смены пароля.",
+      autoDismissMs: 2400,
+      autoDismissWhenVisible: true,
+    });
+    return;
+  }
+  const passwordError = validateStrongPasswordClient(newPassword);
+  if (passwordError) {
+    pushChatNotification({
+      title: "Пароль",
+      body: `Пароль слишком слабый: ${passwordError}`,
+      autoDismissMs: 2400,
+      autoDismissWhenVisible: true,
+    });
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    pushChatNotification({
+      title: "Пароль",
+      body: "Подтверждение нового пароля не совпадает.",
+      autoDismissMs: 2400,
+      autoDismissWhenVisible: true,
+    });
+    return;
+  }
+
+  const response = await emitWithAck("changePassword", {
+    sessionToken: currentSessionToken,
+    currentPassword,
+    newPassword,
+  });
+
+  if (!response?.ok) {
+    if (response?.reason === "invalid_session") {
+      performLogout({ skipServer: true });
+      showAuthError(response?.message || "Сессия истекла. Войдите заново.", "login");
+      return;
+    }
+    pushChatNotification({
+      title: "Пароль",
+      body: response?.message || "Не удалось сменить пароль.",
+      autoDismissMs: 2600,
+      autoDismissWhenVisible: true,
+    });
+    return;
+  }
+
+  if (selfProfileCurrentPasswordInput) selfProfileCurrentPasswordInput.value = "";
+  if (selfProfileNewPasswordInput) selfProfileNewPasswordInput.value = "";
+  if (selfProfileConfirmPasswordInput) selfProfileConfirmPasswordInput.value = "";
+  pushChatNotification({
+    title: "Пароль",
+    body: "Пароль успешно изменён.",
+    autoDismissMs: 2200,
+    autoDismissWhenVisible: true,
+  });
+}
 
 function showReplyPreview() {
   if (!replyPreview || !replyAuthorEl || !replyTextEl || !replyTarget) return;
@@ -282,6 +1798,56 @@ function hideReplyPreview() {
   if (replyPreview) {
     replyPreview.classList.add("hidden");
   }
+}
+
+function updateComposerModeUI() {
+  const isEditing = Boolean(editTarget);
+  if (messageForm) {
+    messageForm.classList.toggle("is-editing", isEditing);
+  }
+  if (sendButton) {
+    sendButton.textContent = isEditing ? "✓" : "➤";
+    sendButton.title = isEditing ? "Сохранить изменение" : "Отправить";
+    sendButton.classList.toggle("is-save-mode", isEditing);
+  }
+  if (messageInput) {
+    messageInput.placeholder = isEditing
+      ? "Редактируйте сообщение..."
+      : DEFAULT_MESSAGE_PLACEHOLDER;
+  }
+}
+
+function showEditPreview() {
+  if (!editPreview || !editPreviewTextEl || !editTarget) return;
+  if (editPreviewAuthorEl) {
+    editPreviewAuthorEl.textContent = "Редактирование сообщения";
+  }
+  const previewText = String(editTarget.originalText || "").trim();
+  editPreviewTextEl.textContent = previewText
+    ? truncateText(previewText, 120)
+    : editTarget.hasAttachments
+      ? "Сообщение с вложением"
+      : "Без текста";
+  editPreview.style.setProperty("--reply-accent", "var(--accent)");
+  editPreview.classList.remove("hidden");
+  updateComposerModeUI();
+}
+
+function hideEditPreview() {
+  editTarget = null;
+  if (editPreview) {
+    editPreview.classList.add("hidden");
+  }
+  updateComposerModeUI();
+}
+
+function cancelMessageEdit({ clearInput = false } = {}) {
+  hideEditPreview();
+  mentionTarget = null;
+  if (clearInput && messageInput) {
+    messageInput.value = "";
+  }
+  autoSizeTextarea();
 }
 
 function setMessageChecks(checkEl, state) {
@@ -394,9 +1960,21 @@ function createDmPopup() {
   popup.className = "dm-popup hidden";
   popup.innerHTML = `
     <div class="dm-title"></div>
+    <button type="button" class="dm-action dm-action--photo">Фото</button>
     <button type="button" class="dm-action dm-action--private">Личное сообщение</button>
     <button type="button" class="dm-action dm-action--public">Публичное сообщение</button>
   `;
+  const photoButton = popup.querySelector(".dm-action--photo");
+  if (photoButton) {
+    photoButton.addEventListener("click", () => {
+      const login = popup.dataset.login || "";
+      const photo = popup.dataset.photo || "";
+      closeDmPopup();
+      if (photo) {
+        openLightbox(photo, login ? `Аватар ${login}` : "Фото");
+      }
+    });
+  }
   const actionButton = popup.querySelector(".dm-action--private");
   if (actionButton) {
     actionButton.addEventListener("click", () => {
@@ -450,12 +2028,19 @@ function closeReactionPicker() {
 }
 
 function openDmPopup(login, anchorEl) {
-  if (!dmPopup || !anchorEl || !login || login === currentLogin) return;
+  const avatarFull = anchorEl?.dataset?.full || anchorEl?.getAttribute?.("src") || "";
+  if (!dmPopup || !anchorEl || !login) return;
   const title = dmPopup.querySelector(".dm-title");
+  const privateButton = dmPopup.querySelector(".dm-action--private");
+  const publicButton = dmPopup.querySelector(".dm-action--public");
   if (title) {
     title.textContent = login;
   }
   dmPopup.dataset.login = login;
+  dmPopup.dataset.photo = avatarFull;
+  const isSelf = isSameLogin(login, currentLogin);
+  if (privateButton) privateButton.classList.toggle("hidden", isSelf);
+  if (publicButton) publicButton.classList.toggle("hidden", isSelf);
   dmPopup.classList.remove("hidden");
 
   const rect = anchorEl.getBoundingClientRect();
@@ -474,19 +2059,67 @@ function closeDmPopup() {
   if (!dmPopup) return;
   dmPopup.classList.add("hidden");
   dmPopup.dataset.login = "";
+  dmPopup.dataset.photo = "";
+}
+
+function setSidebarSectionCollapsed(key, collapsed) {
+  const isCollapsed = Boolean(collapsed);
+  sectionCollapsedState[key] = isCollapsed;
+
+  const map = {
+    contacts: {
+      section: contactsSection,
+      list: usersList,
+      toggle: contactsToggle,
+    },
+    dialogs: {
+      section: directDialogsSection,
+      list: directList,
+      toggle: dialogsToggle,
+    },
+    online: {
+      section: onlineUsersSection,
+      list: onlineUsersList,
+      toggle: onlineToggle,
+    },
+  };
+  const target = map[key];
+  if (!target) return;
+
+  if (target.section) {
+    target.section.classList.toggle("is-collapsed", isCollapsed);
+  }
+  if (target.list) {
+    target.list.classList.toggle("hidden", isCollapsed);
+  }
+  if (target.toggle) {
+    target.toggle.classList.toggle("is-collapsed", isCollapsed);
+    target.toggle.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+  }
+}
+
+function toggleSidebarSection(key) {
+  setSidebarSectionCollapsed(key, !sectionCollapsedState[key]);
 }
 
 function updatePublicShortcutVisibility() {
-  const isDirect = activeChat.type === "direct";
-  if (usersList) {
-    usersList.classList.toggle("hidden", isDirect);
+  const showDialogsSection = activeChat.type === "public";
+  const showOnlineSection = activeChat.type === "public";
+  if (directDialogsSection) {
+    directDialogsSection.classList.toggle("hidden", !showDialogsSection);
+  }
+  if (onlineUsersSection) {
+    onlineUsersSection.classList.toggle("hidden", !showOnlineSection);
   }
   if (botsToggleLabel) {
-    botsToggleLabel.classList.toggle("hidden", isDirect);
+    botsToggleLabel.classList.toggle("hidden", true);
   }
   if (publicChatShortcut) {
-    publicChatShortcut.classList.toggle("hidden", !isDirect);
+    publicChatShortcut.classList.add("hidden");
   }
+  setSidebarSectionCollapsed("contacts", sectionCollapsedState.contacts);
+  setSidebarSectionCollapsed("dialogs", sectionCollapsedState.dialogs);
+  setSidebarSectionCollapsed("online", sectionCollapsedState.online);
 }
 
 function closeProfileCard() {
@@ -535,6 +2168,299 @@ function closeProfileAvatarView() {
   if (!profileAvatarView || !profileAvatarFull) return;
   profileAvatarView.classList.add("hidden");
   profileAvatarFull.src = "";
+}
+
+function normalizeContactEntry(entry) {
+  const login = normalizeLoginValue(entry?.login);
+  if (!login || isSameLogin(login, currentLogin)) return null;
+  const color = normalizeKnownColor(entry?.color) || getColorForLogin(login);
+  const avatar = typeof entry?.avatar === "string" && entry.avatar.trim() ? entry.avatar : null;
+  const avatarId =
+    !avatar && typeof entry?.avatarId === "string" && entry.avatarId.trim()
+      ? entry.avatarId.trim()
+      : null;
+  const avatarOriginal =
+    typeof entry?.avatarOriginal === "string" && entry.avatarOriginal.trim()
+      ? entry.avatarOriginal
+      : avatar;
+  return {
+    login,
+    color,
+    avatar,
+    avatarId,
+    avatarOriginal,
+  };
+}
+
+function applyContacts(items) {
+  contactEntries = (Array.isArray(items) ? items : [])
+    .map((item) => normalizeContactEntry(item))
+    .filter(Boolean)
+    .sort((a, b) => a.login.localeCompare(b.login, "ru", { sensitivity: "base" }));
+}
+
+function upsertContactEntry(entry) {
+  const normalized = normalizeContactEntry(entry);
+  if (!normalized) return;
+  const index = contactEntries.findIndex((item) => isSameLogin(item.login, normalized.login));
+  if (index >= 0) {
+    contactEntries[index] = normalized;
+  } else {
+    contactEntries.push(normalized);
+    contactEntries.sort((a, b) => a.login.localeCompare(b.login, "ru", { sensitivity: "base" }));
+  }
+}
+
+function closeContactSearchModal() {
+  if (!contactSearchModal) return;
+  contactSearchModal.classList.add("hidden");
+  if (contactSearchDebounceTimer) {
+    clearTimeout(contactSearchDebounceTimer);
+    contactSearchDebounceTimer = null;
+  }
+  contactSearchState.requestId += 1;
+  setContactSearchLoading(false);
+}
+
+function setContactSearchLoading(loading) {
+  contactSearchState.loading = Boolean(loading);
+  if (!contactSearchLoading) return;
+  contactSearchLoading.classList.toggle("hidden", !contactSearchState.loading);
+}
+
+async function addContactByLogin(login) {
+  const normalizedLogin = normalizeLoginValue(login);
+  if (!normalizedLogin) return false;
+  const response = await emitWithAck("addContact", { login: normalizedLogin });
+  if (!response?.ok) {
+    pushChatNotification({
+      title: "Контакты",
+      body: response?.message || "Не удалось добавить контакт.",
+      autoDismissMs: 2300,
+      autoDismissWhenVisible: true,
+    });
+    return false;
+  }
+  if (Array.isArray(response?.items)) {
+    applyContacts(response.items);
+  } else if (response?.contact) {
+    upsertContactEntry(response.contact);
+  }
+  renderUserList();
+  return true;
+}
+
+async function removeContactByLogin(login) {
+  const normalizedLogin = normalizeLoginValue(login);
+  if (!normalizedLogin) return false;
+  const response = await emitWithAck("removeContact", { login: normalizedLogin });
+  if (!response?.ok) {
+    pushChatNotification({
+      title: "Контакты",
+      body: response?.message || "Не удалось удалить контакт.",
+      autoDismissMs: 2300,
+      autoDismissWhenVisible: true,
+    });
+    return false;
+  }
+  if (Array.isArray(response?.items)) {
+    applyContacts(response.items);
+  }
+  renderUserList();
+  return true;
+}
+
+function sortContactSearchItems(items) {
+  return [...(Array.isArray(items) ? items : [])].sort((a, b) => {
+    const aContact = Number(Boolean(a?.isContact));
+    const bContact = Number(Boolean(b?.isContact));
+    if (aContact !== bContact) {
+      return bContact - aContact;
+    }
+    const aLogin = normalizeLoginValue(a?.login);
+    const bLogin = normalizeLoginValue(b?.login);
+    return aLogin.localeCompare(bLogin, "ru", { sensitivity: "base" });
+  });
+}
+
+function renderContactSearchResults() {
+  if (!contactSearchResults) return;
+  contactSearchResults.innerHTML = "";
+  const items = sortContactSearchItems(contactSearchState.items);
+  if (items.length === 0) {
+    if (contactSearchState.loading) return;
+    const empty = document.createElement("li");
+    empty.className = "users-empty";
+    empty.textContent = "Ничего не найдено";
+    contactSearchResults.appendChild(empty);
+    return;
+  }
+
+  items.forEach((item) => {
+    const login = normalizeLoginValue(item?.login);
+    if (!login || isSameLogin(login, currentLogin)) return;
+    const color = normalizeKnownColor(item?.color) || getColorForLogin(login);
+    const avatarUrl =
+      (typeof item?.avatar === "string" && item.avatar.trim() && item.avatar) ||
+      getAvatarById(item?.avatarId) ||
+      getAvatarForLogin(login);
+    const avatarOriginal =
+      (typeof item?.avatarOriginal === "string" &&
+        item.avatarOriginal.trim() &&
+        item.avatarOriginal) ||
+      avatarUrl;
+    const li = document.createElement("li");
+    li.className = "contact-search-result";
+    li.innerHTML = `
+      <img class="user-avatar" src="${avatarUrl}" alt="${escapeHtml(login)}" />
+      <div class="contact-search-result-meta">
+        <div class="contact-search-result-name" style="color:${escapeHtml(color)}">${escapeHtml(login)}</div>
+        <div class="contact-search-result-status">${
+          item?.isContact ? "Уже в контактах" : "Можно добавить"
+        }</div>
+      </div>
+      <div class="contact-search-result-actions">
+        <button type="button" class="contact-search-result-action ${
+          item?.isContact ? "contact-search-result-action--remove" : ""
+        }">${
+          item?.isContact ? "Удалить" : "Добавить"
+        }</button>
+      </div>
+    `;
+    const avatar = li.querySelector(".user-avatar");
+    if (avatar) {
+      avatar.dataset.full = avatarOriginal;
+      avatar.classList.add("is-clickable");
+      avatar.style.setProperty("--avatar-border", color);
+      avatar.style.setProperty("--avatar-glow", hexToRgba(color, 0.35));
+      avatar.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openLightbox(avatar.dataset.full || avatar.src, `Аватар ${login}`);
+      });
+    }
+    const action = li.querySelector(".contact-search-result-action");
+    if (action) {
+      if (item?.isContact) {
+        action.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          action.setAttribute("disabled", "disabled");
+          const ok = await removeContactByLogin(login);
+          if (!ok) {
+            action.removeAttribute("disabled");
+            return;
+          }
+          contactSearchState.items = contactSearchState.items.map((entry) =>
+            isSameLogin(entry?.login, login) ? { ...entry, isContact: false } : entry
+          );
+          renderContactSearchResults();
+        });
+      } else {
+        action.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          action.setAttribute("disabled", "disabled");
+          const ok = await addContactByLogin(login);
+          if (!ok) {
+            action.removeAttribute("disabled");
+            return;
+          }
+          contactSearchState.items = contactSearchState.items.map((entry) =>
+            isSameLogin(entry?.login, login) ? { ...entry, isContact: true } : entry
+          );
+          renderContactSearchResults();
+        });
+      }
+    }
+    contactSearchResults.appendChild(li);
+  });
+}
+
+async function loadContactSearchPage({ reset = false } = {}) {
+  if (!contactSearchModal || contactSearchModal.classList.contains("hidden")) return;
+  if (contactSearchState.loading) return;
+  if (!reset && contactSearchState.nextCursor === null) return;
+  const cursor = reset ? 0 : Number(contactSearchState.nextCursor) || 0;
+  const requestId = contactSearchState.requestId + 1;
+  contactSearchState.requestId = requestId;
+  if (reset) {
+    contactSearchState.items = [];
+    contactSearchState.nextCursor = 0;
+    contactSearchState.total = 0;
+    renderContactSearchResults();
+  }
+
+  setContactSearchLoading(true);
+  const response = await emitWithAck("searchUsers", {
+    query: contactSearchState.query,
+    cursor,
+    limit: CONTACT_SEARCH_PAGE_SIZE,
+  });
+  if (requestId !== contactSearchState.requestId) return;
+  setContactSearchLoading(false);
+  if (!response?.ok) {
+    return;
+  }
+
+  const incoming = Array.isArray(response?.items) ? response.items : [];
+  const merged = reset ? [] : [...contactSearchState.items];
+  incoming.forEach((item) => {
+    const login = normalizeLoginValue(item?.login);
+    if (!login) return;
+    if (merged.some((entry) => isSameLogin(entry?.login, login))) return;
+    merged.push(item);
+  });
+  contactSearchState.items = sortContactSearchItems(merged);
+  const cursorValue = Number(response?.nextCursor);
+  contactSearchState.nextCursor =
+    Number.isInteger(cursorValue) && cursorValue >= 0 ? cursorValue : null;
+  contactSearchState.total = Number(response?.total || merged.length) || merged.length;
+  renderContactSearchResults();
+}
+
+function openContactSearchModal() {
+  if (!contactSearchModal) return;
+  contactSearchModal.classList.remove("hidden");
+  if (contactSearchInput) {
+    contactSearchInput.value = "";
+    contactSearchInput.focus();
+  }
+  contactSearchState.query = "";
+  contactSearchState.nextCursor = 0;
+  contactSearchState.total = 0;
+  contactSearchState.items = [];
+  contactSearchState.requestId += 1;
+  setContactSearchLoading(false);
+  renderContactSearchResults();
+  void loadContactSearchPage({ reset: true });
+}
+
+function closeChatSettingsModal() {
+  if (!chatSettingsModal) return;
+  chatSettingsModal.classList.add("hidden");
+  chatSettingsSavePending = false;
+  if (chatSettingsSave) {
+    chatSettingsSave.removeAttribute("disabled");
+  }
+}
+
+function openChatSettingsModal() {
+  const room = getCurrentChatRoom();
+  if (!chatSettingsModal || !room) return;
+  chatRoomAvatarDraft = room.avatar || null;
+  chatRoomAvatarOriginalDraft = room.avatarOriginal || room.avatar || null;
+  chatRoomAvatarIdDraft = room.avatar ? null : room.avatarId || null;
+  chatSettingsSavePending = false;
+  if (chatSettingsSave) {
+    chatSettingsSave.removeAttribute("disabled");
+  }
+  if (chatSettingsAvatarUpload) {
+    chatSettingsAvatarUpload.value = "";
+  }
+  if (chatSettingsNameInput) {
+    chatSettingsNameInput.value = room.title || "";
+    chatSettingsNameInput.focus();
+  }
+  syncChatSettingsAvatarPreview();
+  chatSettingsModal.classList.remove("hidden");
 }
 
 function queuePublicMention(login, { allowSelf = false } = {}) {
@@ -856,15 +2782,226 @@ if (replyCancelBtn) {
   });
 }
 
+if (editCancelBtn) {
+  editCancelBtn.addEventListener("click", () => {
+    cancelMessageEdit({ clearInput: true });
+  });
+}
+
 if (backToPublic) {
   backToPublic.addEventListener("click", () => {
-    setActiveChat("public");
+    setActiveChat("home");
   });
 }
 
 if (publicChatShortcut) {
   publicChatShortcut.addEventListener("click", () => {
     setActiveChat("public");
+  });
+}
+
+if (contactSearchButton) {
+  contactSearchButton.addEventListener("click", () => {
+    openContactSearchModal();
+  });
+}
+
+if (contactsToggle) {
+  contactsToggle.addEventListener("click", () => {
+    toggleSidebarSection("contacts");
+  });
+}
+
+if (dialogsToggle) {
+  dialogsToggle.addEventListener("click", () => {
+    toggleSidebarSection("dialogs");
+  });
+}
+
+if (onlineToggle) {
+  onlineToggle.addEventListener("click", () => {
+    toggleSidebarSection("online");
+  });
+}
+
+if (contactSearchClose) {
+  contactSearchClose.addEventListener("click", () => {
+    closeContactSearchModal();
+  });
+}
+
+if (contactSearchModal) {
+  contactSearchModal.addEventListener("click", (event) => {
+    if (event.target === contactSearchModal) {
+      closeContactSearchModal();
+    }
+  });
+}
+
+if (contactSearchInput) {
+  contactSearchInput.addEventListener("input", () => {
+    contactSearchState.query = normalizeLoginValue(contactSearchInput.value);
+    if (contactSearchDebounceTimer) {
+      clearTimeout(contactSearchDebounceTimer);
+      contactSearchDebounceTimer = null;
+    }
+    contactSearchDebounceTimer = setTimeout(() => {
+      contactSearchDebounceTimer = null;
+      void loadContactSearchPage({ reset: true });
+    }, 250);
+  });
+}
+
+if (contactSearchResults) {
+  contactSearchResults.addEventListener("scroll", () => {
+    const threshold = 80;
+    const reachedBottom =
+      contactSearchResults.scrollTop + contactSearchResults.clientHeight >=
+      contactSearchResults.scrollHeight - threshold;
+    if (reachedBottom) {
+      void loadContactSearchPage({ reset: false });
+    }
+  });
+}
+
+if (chatSettingsButton) {
+  chatSettingsButton.addEventListener("click", () => {
+    openChatSettingsModal();
+  });
+}
+
+if (chatSettingsClose) {
+  chatSettingsClose.addEventListener("click", () => {
+    closeChatSettingsModal();
+  });
+}
+
+if (chatSettingsModal) {
+  chatSettingsModal.addEventListener("click", (event) => {
+    if (event.target === chatSettingsModal) {
+      closeChatSettingsModal();
+    }
+  });
+}
+
+if (chatSettingsAvatarPreview) {
+  chatSettingsAvatarPreview.addEventListener("click", () => {
+    const full = chatSettingsAvatarPreview.dataset.full || chatSettingsAvatarPreview.src;
+    if (!full) return;
+    openLightbox(full, "Аватар чата");
+  });
+}
+
+if (chatSettingsAvatarUpload) {
+  chatSettingsAvatarUpload.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      pushChatNotification({
+        title: "Настройки чата",
+        body: "Можно загружать только изображения.",
+        autoDismissMs: 2200,
+        autoDismissWhenVisible: true,
+      });
+      chatSettingsAvatarUpload.value = "";
+      return;
+    }
+    if (file.size > MAX_AVATAR_SIZE) {
+      pushChatNotification({
+        title: "Настройки чата",
+        body: "Аватар не должен превышать 5 МБ.",
+        autoDismissMs: 2200,
+        autoDismissWhenVisible: true,
+      });
+      chatSettingsAvatarUpload.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        chatRoomAvatarOriginalDraft = result;
+        openAvatarCropper(result, { target: "chat-room" });
+      }
+      chatSettingsAvatarUpload.value = "";
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+if (chatSettingsNameInput) {
+  chatSettingsNameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      chatSettingsSave?.click();
+    }
+  });
+}
+
+if (chatSettingsSave) {
+  chatSettingsSave.addEventListener("click", async () => {
+    if (chatSettingsSavePending) return;
+    const room = getCurrentChatRoom();
+    if (!room) return;
+    const title = String(chatSettingsNameInput?.value || "").trim().slice(0, 60);
+    if (!title) {
+      pushChatNotification({
+        title: "Настройки чата",
+        body: "Введите название чата.",
+        autoDismissMs: 2300,
+        autoDismissWhenVisible: true,
+      });
+      return;
+    }
+    chatSettingsSavePending = true;
+    chatSettingsSave.setAttribute("disabled", "disabled");
+    const response = await emitWithAck("updateChatRoomSettings", {
+      id: room.id,
+      title,
+      avatar: chatRoomAvatarDraft || null,
+      avatarId: chatRoomAvatarDraft ? null : chatRoomAvatarIdDraft || null,
+      avatarOriginal: chatRoomAvatarOriginalDraft || chatRoomAvatarDraft || null,
+    });
+    chatSettingsSavePending = false;
+    chatSettingsSave.removeAttribute("disabled");
+    if (!response?.ok) {
+      pushChatNotification({
+        title: "Настройки чата",
+        body: response?.message || "Не удалось сохранить настройки чата.",
+        autoDismissMs: 2500,
+        autoDismissWhenVisible: true,
+      });
+      return;
+    }
+
+    if (Array.isArray(response?.rooms)) {
+      applyChatRooms(response.rooms);
+    } else {
+      const updated = normalizeChatRoom(response?.room);
+      if (updated) {
+        const currentRooms = getChatRoomsSafe().map((item) => normalizeChatRoom(item)).filter(Boolean);
+        const index = currentRooms.findIndex((item) => String(item.id) === String(updated.id));
+        if (index >= 0) {
+          currentRooms[index] = updated;
+        } else {
+          currentRooms.push(updated);
+        }
+        applyChatRooms(currentRooms);
+      }
+    }
+    if (response?.room?.id) {
+      currentChatRoomId = String(response.room.id);
+    }
+
+    renderUserList();
+    updateChatHeader();
+    closeChatSettingsModal();
+    pushChatNotification({
+      title: "Настройки чата",
+      body: "Параметры чата обновлены.",
+      autoDismissMs: 2000,
+      autoDismissWhenVisible: true,
+    });
   });
 }
 
@@ -918,7 +3055,163 @@ if (profilePublicBtn) {
   });
 }
 
+if (profileButton) {
+  profileButton.addEventListener("click", () => {
+    openSelfProfileModal();
+  });
+}
+
+if (selfProfileClose) {
+  selfProfileClose.addEventListener("click", () => {
+    closeSelfProfileModal();
+  });
+}
+
+if (selfProfileModal) {
+  selfProfileModal.addEventListener("click", (event) => {
+    if (event.target === selfProfileModal) {
+      closeSelfProfileModal();
+    }
+  });
+}
+
+if (selfProfileSave) {
+  selfProfileSave.addEventListener("click", () => {
+    void applySelfProfileChanges();
+  });
+}
+
+if (selfProfileBubbleColorReset) {
+  selfProfileBubbleColorReset.addEventListener("click", () => {
+    if (selfProfileBubbleColorInput) {
+      selfProfileBubbleColorInput.value = DEFAULT_OWN_BUBBLE_COLOR;
+    }
+    pushChatNotification({
+      title: "Профиль",
+      body: "Цвет сброшен к значению по умолчанию. Нажмите «Сохранить».",
+      autoDismissMs: 2200,
+      autoDismissWhenVisible: true,
+    });
+  });
+}
+
+if (selfProfileLoginInput) {
+  selfProfileLoginInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void applySelfProfileChanges();
+    }
+  });
+}
+
+if (selfProfileChangePasswordButton) {
+  selfProfileChangePasswordButton.addEventListener("click", () => {
+    void changeSelfPassword();
+  });
+}
+
+if (selfProfileConfirmPasswordInput) {
+  selfProfileConfirmPasswordInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void changeSelfPassword();
+    }
+  });
+}
+
+if (selfProfileAvatarUpload) {
+  selfProfileAvatarUpload.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      pushChatNotification({
+        title: "Профиль",
+        body: "Можно загружать только изображения.",
+        autoDismissMs: 2200,
+        autoDismissWhenVisible: true,
+      });
+      selfProfileAvatarUpload.value = "";
+      return;
+    }
+    if (file.size > MAX_AVATAR_SIZE) {
+      pushChatNotification({
+        title: "Профиль",
+        body: "Аватар не должен превышать 5 МБ.",
+        autoDismissMs: 2200,
+        autoDismissWhenVisible: true,
+      });
+      selfProfileAvatarUpload.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        selfProfileAvatarOriginalDraft = result;
+        openAvatarCropper(result, { target: "profile" });
+      }
+      selfProfileAvatarUpload.value = "";
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+if (selfProfileAvatarPreview) {
+  selfProfileAvatarPreview.addEventListener("click", () => {
+    const full = selfProfileAvatarPreview.dataset.full || selfProfileAvatarPreview.src;
+    if (!full) return;
+    openLightbox(full, "Ваш аватар");
+  });
+}
+
 renderAvatarOptions();
+
+function toggleAuthPanel(panel, toggle, openText, closeText) {
+  if (!panel || !toggle) return;
+  const isHidden = panel.classList.toggle("hidden");
+  toggle.textContent = isHidden ? openText : closeText;
+}
+
+if (registerToggle && registerForm) {
+  registerToggle.addEventListener("click", () => {
+    toggleAuthPanel(registerForm, registerToggle, "Регистрация", "Скрыть регистрацию");
+  });
+}
+if (verifyToggle && verifyForm) {
+  verifyToggle.addEventListener("click", () => {
+    toggleAuthPanel(verifyForm, verifyToggle, "Подтвердить почту", "Скрыть подтверждение");
+  });
+}
+if (resetToggle && resetForm) {
+  resetToggle.addEventListener("click", () => {
+    toggleAuthPanel(resetForm, resetToggle, "Восстановить пароль", "Скрыть восстановление");
+  });
+}
+if (resetPasswordInput) {
+  resetPasswordInput.addEventListener("input", updateResetSendCodeAvailability);
+}
+if (resetPasswordConfirmInput) {
+  resetPasswordConfirmInput.addEventListener("input", updateResetSendCodeAvailability);
+}
+updateResetSendCodeAvailability();
+
+const restoredAuthState = readAuthState();
+if (restoredAuthState) {
+  applyAuthToSession(restoredAuthState);
+  applyAuthToLoginForm(restoredAuthState);
+  loadHiddenDirectDialogs();
+  loadVisibleDirectDialogs();
+  persistAuthState();
+  openChatScreen({ restoreLastChat: true });
+  joinCurrentUserIfNeeded(true);
+}
+
+if (logoutButton) {
+  logoutButton.addEventListener("click", () => {
+    performLogout();
+  });
+}
 
 document.addEventListener("click", (event) => {
   if (!reactionPicker) return;
@@ -961,6 +3254,16 @@ function updateCustomAvatarPreview(avatarUrl) {
   selectedAvatarId = null;
 }
 
+function updateSelfProfileAvatarPreview(avatarUrl) {
+  selfProfileAvatarDraft = avatarUrl;
+  if (!selfProfileAvatarOriginalDraft) {
+    selfProfileAvatarOriginalDraft = avatarUrl;
+  }
+  selfProfileAvatarIdDraft = null;
+  renderSelfProfileAvatarOptions();
+  syncSelfProfileAvatarPreview();
+}
+
 function closeAvatarCropper() {
   if (avatarCropModal) {
     avatarCropModal.classList.add("hidden");
@@ -970,6 +3273,7 @@ function closeAvatarCropper() {
   }
   cropSourceImage = null;
   cropDragState = null;
+  avatarCropTarget = "login";
 }
 
 function updateCropTransform() {
@@ -1010,9 +3314,20 @@ function initCropper() {
   }
 }
 
-function openAvatarCropper(dataUrl) {
+function openAvatarCropper(dataUrl, { target = "login" } = {}) {
+  avatarCropTarget =
+    target === "profile" || target === "chat-room" ? target : "login";
   if (!avatarCropModal || !avatarCropImage) {
-    updateCustomAvatarPreview(dataUrl);
+    if (avatarCropTarget === "profile") {
+      updateSelfProfileAvatarPreview(dataUrl);
+    } else if (avatarCropTarget === "chat-room") {
+      chatRoomAvatarOriginalDraft = dataUrl;
+      chatRoomAvatarDraft = dataUrl;
+      chatRoomAvatarIdDraft = null;
+      syncChatSettingsAvatarPreview();
+    } else {
+      updateCustomAvatarPreview(dataUrl);
+    }
     return;
   }
   cropSourceImage = new Image();
@@ -1055,7 +3370,16 @@ function applyAvatarCrop() {
   );
 
   const dataUrl = canvas.toDataURL("image/png");
-  updateCustomAvatarPreview(dataUrl);
+  if (avatarCropTarget === "profile") {
+    updateSelfProfileAvatarPreview(dataUrl);
+  } else if (avatarCropTarget === "chat-room") {
+    chatRoomAvatarOriginalDraft = cropSourceImage?.src || dataUrl;
+    chatRoomAvatarDraft = dataUrl;
+    chatRoomAvatarIdDraft = null;
+    syncChatSettingsAvatarPreview();
+  } else {
+    updateCustomAvatarPreview(dataUrl);
+  }
   closeAvatarCropper();
 }
 
@@ -1182,8 +3506,13 @@ if (avatarCropZoom) {
 
 if (avatarCropCancel) {
   avatarCropCancel.addEventListener("click", () => {
+    const target = avatarCropTarget;
     closeAvatarCropper();
-    if (avatarUploadInput) {
+    if (target === "profile" && selfProfileAvatarUpload) {
+      selfProfileAvatarUpload.value = "";
+    } else if (target === "chat-room" && chatSettingsAvatarUpload) {
+      chatSettingsAvatarUpload.value = "";
+    } else if (avatarUploadInput) {
       avatarUploadInput.value = "";
     }
   });
@@ -1359,6 +3688,130 @@ function renderAttachmentPreview(files) {
 
   attachmentPreview.appendChild(fragment);
   attachmentPreview.classList.remove("hidden");
+}
+
+function isChatComposerAvailable() {
+  return Boolean(
+    chatScreen &&
+      !chatScreen.classList.contains("hidden") &&
+      messageForm &&
+      !messageForm.classList.contains("hidden") &&
+      attachmentInput
+  );
+}
+
+function hasTransferFiles(dataTransfer) {
+  if (!dataTransfer) return false;
+  if (Array.from(dataTransfer.types || []).includes("Files")) return true;
+  if (!dataTransfer.items || dataTransfer.items.length === 0) return false;
+  return Array.from(dataTransfer.items).some((item) => item?.kind === "file");
+}
+
+function createAttachmentFileName(file, source, index) {
+  const mime = String(file?.type || "").toLowerCase();
+  const rawExtension = mime.includes("/") ? mime.split("/")[1] : "";
+  const extension = rawExtension
+    ? rawExtension.split("+")[0].split(";")[0].replace(/[^a-z0-9]/g, "")
+    : "bin";
+  return `${source}-${Date.now()}-${index + 1}.${extension || "bin"}`;
+}
+
+function withGuaranteedFileName(file, source, index) {
+  if (!file) return null;
+  if (String(file.name || "").trim()) return file;
+  const generatedName = createAttachmentFileName(file, source, index);
+  if (typeof File !== "function") return null;
+  try {
+    return new File([file], generatedName, {
+      type: file.type || "application/octet-stream",
+      lastModified: Date.now(),
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+function collectFilesFromTransfer(dataTransfer, { source = "drop" } = {}) {
+  if (!dataTransfer) return [];
+  const collected = [];
+
+  if (dataTransfer.items && dataTransfer.items.length > 0) {
+    Array.from(dataTransfer.items).forEach((item) => {
+      if (!item || item.kind !== "file") return;
+      const file = item.getAsFile();
+      const prepared = withGuaranteedFileName(file, source, collected.length);
+      if (!prepared || !prepared.name) return;
+      collected.push(prepared);
+    });
+  }
+
+  if (collected.length === 0 && dataTransfer.files && dataTransfer.files.length > 0) {
+    Array.from(dataTransfer.files).forEach((file) => {
+      const prepared = withGuaranteedFileName(file, source, collected.length);
+      if (!prepared || !prepared.name) return;
+      collected.push(prepared);
+    });
+  }
+
+  return collected;
+}
+
+function appendIncomingAttachments(incomingFiles) {
+  if (!attachmentInput) return 0;
+  const files = Array.isArray(incomingFiles) ? incomingFiles.filter(Boolean) : [];
+  if (files.length === 0) return 0;
+  if (typeof DataTransfer !== "function") {
+    pushChatNotification({
+      title: "Вложения",
+      body: "Ваш браузер не поддерживает добавление файлов из буфера/перетаскивания.",
+      autoDismissMs: 2200,
+      autoDismissWhenVisible: true,
+    });
+    return 0;
+  }
+
+  const transfer = new DataTransfer();
+  const existingFiles = Array.from(attachmentInput.files || []);
+  existingFiles.forEach((file) => transfer.items.add(file));
+  files.forEach((file) => transfer.items.add(file));
+
+  attachmentInput.files = transfer.files;
+  const mergedFiles = Array.from(attachmentInput.files || []);
+  updateAttachmentCount();
+  renderAttachmentPreview(mergedFiles);
+  return files.length;
+}
+
+function setChatDragState(active) {
+  if (!chatMain) return;
+  chatMain.classList.toggle("is-file-drag", Boolean(active));
+}
+
+function resetChatDragState() {
+  chatFileDragDepth = 0;
+  setChatDragState(false);
+}
+
+function isNativeFileDropTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      'input[type="file"], .avatar-upload-label, .self-profile-upload-label, .chat-settings-upload-label'
+    )
+  );
+}
+
+function handleClipboardFilePaste(event) {
+  if (!isChatComposerAvailable()) return false;
+  const clipboardData = event?.clipboardData;
+  const files = collectFilesFromTransfer(clipboardData, { source: "clipboard" });
+  if (files.length === 0) return false;
+  event.preventDefault();
+  const addedCount = appendIncomingAttachments(files);
+  if (addedCount > 0 && messageInput) {
+    messageInput.focus();
+  }
+  return addedCount > 0;
 }
 
 const EMOJI_GROUPS = [
@@ -1585,12 +4038,14 @@ function openLightbox(src, alt) {
   lightboxImage.src = src;
   lightboxImage.alt = alt || "Просмотр изображения";
   lightbox.classList.remove("hidden");
+  document.body.classList.add("lightbox-open");
 }
 
 function closeLightbox() {
   if (!lightbox || !lightboxImage) return;
   lightbox.classList.add("hidden");
   lightboxImage.src = "";
+  document.body.classList.remove("lightbox-open");
 }
 
 if (lightboxClose) {
@@ -1608,6 +4063,12 @@ if (lightbox) {
   });
 }
 
+if (lightboxImage) {
+  lightboxImage.addEventListener("click", () => {
+    closeLightbox();
+  });
+}
+
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (lightbox && !lightbox.classList.contains("hidden")) {
@@ -1618,6 +4079,9 @@ document.addEventListener("keydown", (event) => {
   }
   if (dmPopup && !dmPopup.classList.contains("hidden")) {
     closeDmPopup();
+  }
+  if (editTarget) {
+    cancelMessageEdit({ clearInput: true });
   }
 });
 
@@ -1663,20 +4127,58 @@ if (messageInput) {
     }
     // Shift+Enter — обычная новая строка, ничего не трогаем
   });
+  messageInput.addEventListener("paste", (event) => {
+    handleClipboardFilePaste(event);
+  });
+}
+updateComposerModeUI();
+
+document.addEventListener("paste", (event) => {
+  if (event.defaultPrevented) return;
+  if (!isChatComposerAvailable()) return;
+  const target = event.target;
+  const isEditableTarget =
+    target &&
+    (target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable);
+  const isMessageInputTarget =
+    messageInput && target instanceof Node && (target === messageInput || messageInput.contains(target));
+  if (isEditableTarget && !isMessageInputTarget) return;
+  handleClipboardFilePaste(event);
+});
+
+if (clearMessageButton) {
+  clearMessageButton.addEventListener("click", () => {
+    if (!messageInput) return;
+    if (editTarget) {
+      cancelMessageEdit({ clearInput: true });
+      messageInput.focus();
+      return;
+    }
+    messageInput.value = "";
+    mentionTarget = null;
+    autoSizeTextarea();
+    messageInput.focus();
+  });
 }
 
 if (messagesList) {
   messagesList.addEventListener("scroll", () => {
     closeReactionPicker();
+    maybeLoadOlderPublicHistory();
+    maybeLoadOlderDirectHistory();
     if (isMessagesNearBottom()) {
       clearUnreadMessages();
       maybeAutoDismissVisibleNotifications();
       processRecipientHighlights();
+      updateScrollToLatestButton();
       return;
     }
     updateUnreadOnScroll();
     maybeAutoDismissVisibleNotifications();
     processRecipientHighlights();
+    updateScrollToLatestButton();
   });
 
   messagesList.addEventListener("click", (event) => {
@@ -1694,6 +4196,14 @@ if (unreadIndicator) {
     } else {
       scrollMessagesToBottom();
     }
+  });
+}
+
+if (scrollToLatestButton) {
+  scrollToLatestButton.addEventListener("click", () => {
+    scrollMessagesToBottom();
+    clearUnreadMessages();
+    requestAnimationFrame(updateScrollToLatestButton);
   });
 }
 
@@ -1742,6 +4252,7 @@ document.addEventListener("click", (event) => {
   hideEmojiPanel();
 });
 window.addEventListener("resize", () => {
+  applySidebarWidth(currentSidebarWidth, { persist: false });
   if (!emojiPanel || emojiPanel.classList.contains("hidden")) return;
   positionEmojiPanel();
 });
@@ -1863,8 +4374,13 @@ if (botsToggle) {
     botsToggle.checked = false;
     if (wrapper) {
       wrapper.classList.add("hidden");
+      wrapper.setAttribute("hidden", "");
     }
   } else {
+    if (wrapper) {
+      wrapper.classList.remove("hidden");
+      wrapper.removeAttribute("hidden");
+    }
     const savedBots = localStorage.getItem("minichat_bots_enabled");
     if (savedBots === "0") {
       botsEnabled = false;
@@ -1948,27 +4464,789 @@ function formatUnreadCount(count) {
   return count > 9 ? "9+" : String(count);
 }
 
-function getDirectHistory(partner) {
-  if (!directHistories.has(partner)) {
-    directHistories.set(partner, []);
+function getPublicEntryKey(entry) {
+  if (entry?.messageId) {
+    return `id:${entry.messageId}`;
   }
-  return directHistories.get(partner);
+  return `fallback:${entry?.login || ""}:${entry?.timestamp || ""}:${entry?.text || ""}`;
+}
+
+function toPublicHistoryEntry(payload) {
+  const login = normalizeLoginValue(payload?.login);
+  if (!login) {
+    return null;
+  }
+  const isCurrentUserMessage = currentLogin && isSameLogin(login, currentLogin);
+  const resolvedAvatar = isCurrentUserMessage
+    ? currentAvatar || payload?.avatar || null
+    : payload?.avatar || null;
+  const resolvedAvatarOriginal = isCurrentUserMessage
+    ? currentAvatarOriginal || currentAvatar || payload?.avatarOriginal || payload?.avatar || null
+    : payload?.avatarOriginal || payload?.avatar || null;
+  const resolvedAvatarId = isCurrentUserMessage
+    ? currentAvatar
+      ? null
+      : currentAvatarId || payload?.avatarId || null
+    : payload?.avatarId || null;
+  return {
+    messageId: payload?.messageId ? String(payload.messageId) : "",
+    login,
+    color: payload?.color || null,
+    text: String(payload?.text || ""),
+    timestamp: payload?.timestamp || new Date().toISOString(),
+    editedAt: payload?.editedAt || null,
+    avatar: resolvedAvatar,
+    avatarId: resolvedAvatarId,
+    avatarOriginal: resolvedAvatarOriginal,
+    attachments: Array.isArray(payload?.attachments) ? payload.attachments : [],
+    replyTo: payload?.replyTo || null,
+    mentionTo: payload?.mentionTo || null,
+    readAll: Boolean(payload?.readAll),
+    local: false,
+    chatType: "public",
+  };
+}
+
+function mergePublicHistoryEntries(items, { mode = "append", reset = false } = {}) {
+  if (reset) {
+    publicHistory.length = 0;
+  }
+
+  const existingKeys = new Set(publicHistory.map((entry) => getPublicEntryKey(entry)));
+  const source = Array.isArray(items) ? items : [];
+  const uniqueIncoming = [];
+
+  source.forEach((item) => {
+    const entry = toPublicHistoryEntry(item);
+    if (!entry) return;
+    const entryKey = getPublicEntryKey(entry);
+    if (existingKeys.has(entryKey)) return;
+    existingKeys.add(entryKey);
+    uniqueIncoming.push(entry);
+  });
+
+  if (uniqueIncoming.length === 0) {
+    return publicHistory;
+  }
+
+  if (mode === "prepend") {
+    publicHistory.unshift(...uniqueIncoming);
+  } else {
+    publicHistory.push(...uniqueIncoming);
+  }
+
+  publicHistory.sort((a, b) => getEntryTimestamp(a) - getEntryTimestamp(b));
+  return publicHistory;
+}
+
+function updatePublicHistoryPaging(meta, { markInitialized = false } = {}) {
+  const totalValue = Number(meta?.total);
+  if (Number.isFinite(totalValue) && totalValue >= 0) {
+    publicHistoryState.total = totalValue;
+  } else {
+    publicHistoryState.total = publicHistory.length;
+  }
+
+  const cursorValue = Number(meta?.nextCursor);
+  publicHistoryState.nextCursor =
+    Number.isInteger(cursorValue) && cursorValue > 0 ? cursorValue : null;
+  if (markInitialized) {
+    publicHistoryState.isInitialized = true;
+  }
+}
+
+function requestPublicHistoryPage({ before = null, limit = PUBLIC_HISTORY_PAGE_SIZE } = {}) {
+  return new Promise((resolve) => {
+    if (!socket.connected || !currentLogin) {
+      resolve({ ok: false, message: "Нет подключения к серверу." });
+      return;
+    }
+
+    const payload = {
+      limit: Math.max(1, Number(limit) || PUBLIC_HISTORY_PAGE_SIZE),
+    };
+    if (before !== null && before !== undefined) {
+      payload.before = before;
+    }
+
+    socket.emit("loadPublicHistory", payload, (response) => {
+      if (!response || typeof response !== "object") {
+        resolve({ ok: false, message: "Некорректный ответ сервера." });
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+if (chatMain) {
+  chatMain.addEventListener("dragenter", (event) => {
+    if (!isChatComposerAvailable()) return;
+    if (!hasTransferFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    chatFileDragDepth += 1;
+    setChatDragState(true);
+  });
+
+  chatMain.addEventListener("dragover", (event) => {
+    if (!isChatComposerAvailable()) return;
+    if (!hasTransferFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+    setChatDragState(true);
+  });
+
+  chatMain.addEventListener("dragleave", (event) => {
+    if (!hasTransferFiles(event.dataTransfer)) return;
+    if (!(event.relatedTarget instanceof Node) || !chatMain.contains(event.relatedTarget)) {
+      resetChatDragState();
+      return;
+    }
+    chatFileDragDepth = Math.max(0, chatFileDragDepth - 1);
+    if (chatFileDragDepth === 0) {
+      setChatDragState(false);
+    }
+  });
+
+  chatMain.addEventListener("drop", (event) => {
+    if (!isChatComposerAvailable()) return;
+    if (!hasTransferFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    const files = collectFilesFromTransfer(event.dataTransfer, { source: "drop" });
+    const addedCount = appendIncomingAttachments(files);
+    if (addedCount > 0 && messageInput) {
+      messageInput.focus();
+    }
+    resetChatDragState();
+  });
+}
+
+document.addEventListener("dragover", (event) => {
+  if (!isChatComposerAvailable()) return;
+  if (!hasTransferFiles(event.dataTransfer)) return;
+  if (isNativeFileDropTarget(event.target)) return;
+  event.preventDefault();
+});
+
+document.addEventListener("drop", (event) => {
+  if (!hasTransferFiles(event.dataTransfer)) return;
+  if (isNativeFileDropTarget(event.target)) return;
+  if (!(event.target instanceof Node) || !chatMain || !chatMain.contains(event.target)) {
+    event.preventDefault();
+    resetChatDragState();
+  }
+});
+
+window.addEventListener("blur", () => {
+  resetChatDragState();
+});
+
+async function loadOlderPublicHistory() {
+  if (!messagesList || publicHistoryState.isLoading) return;
+  if (publicHistoryState.nextCursor === null || publicHistoryState.nextCursor <= 0) return;
+
+  publicHistoryState.isLoading = true;
+  const previousHeight = messagesList.scrollHeight;
+  const previousTop = messagesList.scrollTop;
+  let response = null;
+  try {
+    response = await requestPublicHistoryPage({
+      before: publicHistoryState.nextCursor,
+      limit: PUBLIC_HISTORY_PAGE_SIZE,
+    });
+  } finally {
+    publicHistoryState.isLoading = false;
+  }
+
+  if (!response?.ok) return;
+
+  mergePublicHistoryEntries(response.items, { mode: "prepend", reset: false });
+  updatePublicHistoryPaging(response, { markInitialized: true });
+  if (activeChat.type === "public") {
+    renderActiveChat({
+      preserveScrollPosition: true,
+      previousHeight,
+      previousTop,
+      scrollToBottom: false,
+    });
+  }
+}
+
+function maybeLoadOlderPublicHistory() {
+  if (!messagesList) return;
+  if (activeChat.type !== "public") return;
+  if (messagesList.scrollTop > PUBLIC_HISTORY_TOP_THRESHOLD) return;
+  void loadOlderPublicHistory();
+}
+
+function getDirectHistory(partner) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner) {
+    return [];
+  }
+  if (!directHistories.has(normalizedPartner)) {
+    directHistories.set(normalizedPartner, []);
+  }
+  return directHistories.get(normalizedPartner);
+}
+
+function getDirectHistoryPaging(partner) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner) {
+    return null;
+  }
+  if (!directHistoryState.has(normalizedPartner)) {
+    directHistoryState.set(normalizedPartner, {
+      nextCursor: null,
+      total: 0,
+      isLoading: false,
+      isInitialized: false,
+    });
+  }
+  return directHistoryState.get(normalizedPartner);
+}
+
+function getDirectEntryKey(entry) {
+  if (entry?.messageId) {
+    return `id:${entry.messageId}`;
+  }
+  return `fallback:${entry?.login || ""}:${entry?.timestamp || ""}:${entry?.text || ""}`;
+}
+
+function toDirectHistoryEntry(payload) {
+  const login = normalizeLoginValue(payload?.login);
+  if (!login) {
+    return null;
+  }
+  const isCurrentUserMessage = currentLogin && isSameLogin(login, currentLogin);
+  const resolvedAvatar = isCurrentUserMessage
+    ? currentAvatar || payload?.avatar || null
+    : payload?.avatar || null;
+  const resolvedAvatarOriginal = isCurrentUserMessage
+    ? currentAvatarOriginal || currentAvatar || payload?.avatarOriginal || payload?.avatar || null
+    : payload?.avatarOriginal || payload?.avatar || null;
+  const resolvedAvatarId = isCurrentUserMessage
+    ? currentAvatar
+      ? null
+      : currentAvatarId || payload?.avatarId || null
+    : payload?.avatarId || null;
+
+  return {
+    messageId: payload?.messageId ? String(payload.messageId) : "",
+    login,
+    color: payload?.color || null,
+    text: String(payload?.text || ""),
+    timestamp: payload?.timestamp || new Date().toISOString(),
+    editedAt: payload?.editedAt || null,
+    avatar: resolvedAvatar,
+    avatarId: resolvedAvatarId,
+    avatarOriginal: resolvedAvatarOriginal,
+    attachments: Array.isArray(payload?.attachments) ? payload.attachments : [],
+    replyTo: payload?.replyTo || null,
+    readAll: Boolean(payload?.readAll),
+    local: false,
+    chatType: "direct",
+  };
+}
+
+function mergeDirectHistoryEntries(partner, items, { mode = "append", reset = false } = {}) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner) {
+    return [];
+  }
+
+  const history = getDirectHistory(normalizedPartner);
+  if (reset) {
+    history.length = 0;
+  }
+
+  const existingKeys = new Set(history.map((entry) => getDirectEntryKey(entry)));
+  const incoming = Array.isArray(items) ? items : [];
+  const uniqueIncoming = [];
+
+  incoming.forEach((item) => {
+    const entry = toDirectHistoryEntry(item);
+    if (!entry) return;
+    const entryKey = getDirectEntryKey(entry);
+    if (existingKeys.has(entryKey)) return;
+    existingKeys.add(entryKey);
+    uniqueIncoming.push(entry);
+  });
+
+  if (uniqueIncoming.length === 0) {
+    return history;
+  }
+
+  if (mode === "prepend") {
+    history.unshift(...uniqueIncoming);
+  } else {
+    history.push(...uniqueIncoming);
+  }
+
+  history.sort((a, b) => getEntryTimestamp(a) - getEntryTimestamp(b));
+  return history;
+}
+
+function rerenderActiveChatPreservingScroll() {
+  if (!messagesList) {
+    renderActiveChat({ scrollToBottom: false });
+    return;
+  }
+  const previousHeight = messagesList.scrollHeight;
+  const previousTop = messagesList.scrollTop;
+  renderActiveChat({
+    preserveScrollPosition: true,
+    previousHeight,
+    previousTop,
+    scrollToBottom: false,
+  });
+}
+
+function updateHistoryEntryByMessageId(entries, messageId, updater) {
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId || !Array.isArray(entries)) return null;
+  const target = entries.find(
+    (entry) => String(entry?.messageId || "") === normalizedMessageId
+  );
+  if (!target) return null;
+  if (typeof updater === "function") {
+    updater(target);
+  }
+  return target;
+}
+
+function updateRenderedEditedMessage(entry, { chatType = "public", partner = null } = {}) {
+  const normalizedMessageId = String(entry?.messageId || "").trim();
+  if (!normalizedMessageId) return false;
+
+  if (chatType === "public" && activeChat.type !== "public") return false;
+  if (chatType === "notes" && activeChat.type !== "notes") return false;
+  if (chatType === "direct") {
+    if (activeChat.type !== "direct") return false;
+    if (!isSameLogin(activeChat.partner, partner || "")) return false;
+  }
+
+  const messageEl = messageElementMap.get(normalizedMessageId);
+  if (!messageEl || !messageEl.isConnected) return false;
+
+  const textEl = messageEl.querySelector(".message-body .text");
+  if (textEl) {
+    const textValue = String(entry?.text || "");
+    const sticker = getStickerPayload(textValue);
+    if (sticker) {
+      textEl.innerHTML = `<div class="sticker-message"><img src="${sticker.uri}" alt="${escapeHtml(
+        sticker.label
+      )}" /></div>`;
+    } else {
+      textEl.innerHTML = formatMessageText(textValue, { mentionTo: entry?.mentionTo || null });
+    }
+  }
+
+  const mentionChip = messageEl.querySelector(".mention-chip");
+  if (mentionChip && entry?.mentionTo) {
+    mentionChip.style.setProperty("--mention-color", getColorForLogin(entry.mentionTo));
+    mentionChip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setActiveChat("public");
+      queuePublicMention(entry.mentionTo, { allowSelf: true });
+    });
+  }
+
+  const statusEl = messageEl.querySelector(".message-status");
+  if (statusEl) {
+    let editedBadge = statusEl.querySelector(".message-edited-badge");
+    if (entry?.editedAt) {
+      if (!editedBadge) {
+        editedBadge = document.createElement("span");
+        editedBadge.className = "message-edited-badge";
+        editedBadge.textContent = "изменено";
+        const timeEl = statusEl.querySelector(".message-time");
+        if (timeEl) {
+          statusEl.insertBefore(editedBadge, timeEl);
+        } else {
+          statusEl.prepend(editedBadge);
+        }
+      }
+    } else if (editedBadge) {
+      editedBadge.remove();
+    }
+  }
+
+  return true;
+}
+
+function applyPublicMessageEdited(payload) {
+  const updated = updateHistoryEntryByMessageId(publicHistory, payload?.messageId, (entry) => {
+    entry.text = String(payload?.text || "");
+    entry.editedAt = payload?.editedAt || new Date().toISOString();
+    entry.mentionTo = payload?.mentionTo || null;
+  });
+  if (!updated) return false;
+  if (replyTarget?.messageId && String(replyTarget.messageId) === String(updated.messageId)) {
+    replyTarget.text = updated.text;
+    showReplyPreview();
+  }
+  updateRenderedEditedMessage(updated, { chatType: "public" });
+  return true;
+}
+
+function getDirectPartnerFromPayload(payload) {
+  const login = normalizeLoginValue(payload?.login);
+  const to = normalizeLoginValue(payload?.to);
+  if (!login || !currentLogin) return "";
+  if (isSameLogin(login, currentLogin)) {
+    return to;
+  }
+  return login;
+}
+
+function applyDirectMessageEdited(payload) {
+  const partner = getDirectPartnerFromPayload(payload);
+  if (!partner) return false;
+  const history = getDirectHistory(partner);
+  const updated = updateHistoryEntryByMessageId(history, payload?.messageId, (entry) => {
+    entry.text = String(payload?.text || "");
+    entry.editedAt = payload?.editedAt || new Date().toISOString();
+  });
+  if (!updated) return false;
+  if (replyTarget?.messageId && String(replyTarget.messageId) === String(updated.messageId)) {
+    replyTarget.text = updated.text;
+    showReplyPreview();
+  }
+  updateRenderedEditedMessage(updated, { chatType: "direct", partner });
+  return true;
+}
+
+function startMessageEdit({ chatType, messageId, currentText, hasAttachments }) {
+  if (!messageInput) return false;
+  const normalizedChatType =
+    chatType === "direct" ? "direct" : chatType === "notes" ? "notes" : "public";
+  const normalizedMessageId = String(messageId || "").trim();
+  if (!normalizedMessageId) return false;
+  if (normalizedChatType === "direct" && !activeChat.partner) return false;
+
+  editTarget = {
+    chatType: normalizedChatType,
+    messageId: normalizedMessageId,
+    originalText: String(currentText || ""),
+    hasAttachments: Boolean(hasAttachments),
+    partner: normalizedChatType === "direct" ? activeChat.partner : null,
+  };
+
+  hideReplyPreview();
+  mentionTarget = null;
+  if (attachmentInput) {
+    attachmentInput.value = "";
+    updateAttachmentCount();
+    clearAttachmentPreview();
+  }
+
+  messageInput.value = editTarget.originalText;
+  autoSizeTextarea();
+  showEditPreview();
+  messageInput.focus();
+  const caret = messageInput.value.length;
+  messageInput.setSelectionRange(caret, caret);
+  return true;
+}
+
+async function submitMessageEditFromComposer() {
+  if (!editTarget || !messageInput) return false;
+  const normalizedChatType =
+    editTarget.chatType === "direct"
+      ? "direct"
+      : editTarget.chatType === "notes"
+        ? "notes"
+        : "public";
+
+  if (
+    normalizedChatType === "direct" &&
+    (!activeChat.partner || !isSameLogin(activeChat.partner, editTarget.partner))
+  ) {
+    cancelMessageEdit({ clearInput: true });
+    return false;
+  }
+
+  if (attachmentInput && attachmentInput.files && attachmentInput.files.length > 0) {
+    pushChatNotification({
+      title: "Редактирование",
+      body: "Для редактирования сначала очистите новые вложения.",
+      autoDismissMs: 2500,
+      autoDismissWhenVisible: true,
+    });
+    return false;
+  }
+
+  const nextText = String(messageInput.value || "").trim();
+  const previousText = String(editTarget.originalText || "").trim();
+  if (nextText === previousText) {
+    cancelMessageEdit({ clearInput: true });
+    return false;
+  }
+  if (!nextText && !editTarget.hasAttachments) {
+    pushChatNotification({
+      title: "Редактирование",
+      body: "Нельзя оставить сообщение пустым.",
+      autoDismissMs: 2200,
+      autoDismissWhenVisible: true,
+    });
+    return false;
+  }
+
+  let updatedLocally = false;
+  if (normalizedChatType === "notes") {
+    updatedLocally = editOwnNoteMessage(editTarget.messageId, nextText);
+  } else {
+    const response = await emitWithAck(
+      normalizedChatType === "direct" ? "editDirectMessage" : "editPublicMessage",
+      {
+        messageId: editTarget.messageId,
+        text: nextText,
+      }
+    );
+    if (!response?.ok) {
+      pushChatNotification({
+        title: "Редактирование",
+        body: response?.message || "Не удалось изменить сообщение.",
+        autoDismissMs: 2600,
+        autoDismissWhenVisible: true,
+      });
+      return false;
+    }
+    const updatedPayload = response?.message;
+    if (updatedPayload && typeof updatedPayload === "object") {
+      if (normalizedChatType === "direct") {
+        applyDirectMessageEdited(updatedPayload);
+      } else {
+        applyPublicMessageEdited(updatedPayload);
+      }
+      updatedLocally = true;
+    }
+  }
+
+  if (!updatedLocally) return false;
+
+  cancelMessageEdit({ clearInput: true });
+  mentionTarget = null;
+  return true;
+}
+
+function requestMessageEdit({ chatType, messageId, currentText, hasAttachments }) {
+  return startMessageEdit({ chatType, messageId, currentText, hasAttachments });
+}
+
+function updateDirectPagingFromResponse(partner, response) {
+  const state = getDirectHistoryPaging(partner);
+  if (!state) return;
+
+  const totalValue = Number(response?.total);
+  state.total =
+    Number.isFinite(totalValue) && totalValue >= 0
+      ? totalValue
+      : getDirectHistory(partner).length;
+
+  const cursorValue = Number(response?.nextCursor);
+  state.nextCursor =
+    Number.isInteger(cursorValue) && cursorValue >= 0 ? cursorValue : null;
+  state.isInitialized = true;
+}
+
+function requestDirectHistoryPage(partner, { before = null, limit = DIRECT_HISTORY_PAGE_SIZE } = {}) {
+  return new Promise((resolve) => {
+    if (!socket.connected || !currentLogin) {
+      resolve({ ok: false, message: "Нет подключения к серверу." });
+      return;
+    }
+
+    const payload = {
+      partner,
+      limit: Math.max(1, Number(limit) || DIRECT_HISTORY_PAGE_SIZE),
+    };
+    if (before !== null && before !== undefined) {
+      payload.before = before;
+    }
+
+    socket.emit("loadDirectHistory", payload, (response) => {
+      if (!response || typeof response !== "object") {
+        resolve({ ok: false, message: "Некорректный ответ сервера." });
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+async function loadDirectHistoryPage(
+  partner,
+  { before = null, mode = "append", reset = false } = {}
+) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner) {
+    return false;
+  }
+
+  const state = getDirectHistoryPaging(normalizedPartner);
+  if (!state || state.isLoading) {
+    return false;
+  }
+
+  state.isLoading = true;
+  let response = null;
+  try {
+    response = await requestDirectHistoryPage(normalizedPartner, {
+      before,
+      limit: DIRECT_HISTORY_PAGE_SIZE,
+    });
+  } finally {
+    state.isLoading = false;
+  }
+
+  if (!response?.ok) {
+    return false;
+  }
+
+  const responsePartner = normalizeLoginValue(response.partner || normalizedPartner) || normalizedPartner;
+  setDirectDialogVisual(responsePartner, {
+    color: response?.partnerColor,
+    avatar: response?.partnerAvatar,
+    avatarId: response?.partnerAvatarId,
+    avatarOriginal: response?.partnerAvatarOriginal,
+  });
+  mergeDirectHistoryEntries(responsePartner, response.items, { mode, reset });
+  updateDirectPagingFromResponse(responsePartner, response);
+  return true;
+}
+
+async function ensureDirectHistoryLoaded(partner, { force = false } = {}) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner) return;
+
+  const state = getDirectHistoryPaging(normalizedPartner);
+  if (!state) return;
+  if (!force && (state.isInitialized || state.isLoading)) {
+    return;
+  }
+
+  const loaded = await loadDirectHistoryPage(normalizedPartner, {
+    before: null,
+    mode: "append",
+    reset: true,
+  });
+  if (!loaded) return;
+
+  renderUserList();
+  if (activeChat.type === "direct" && isSameLogin(activeChat.partner, normalizedPartner)) {
+    renderActiveChat();
+  }
+}
+
+async function loadOlderDirectHistory(partner) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner || !messagesList) return;
+
+  const state = getDirectHistoryPaging(normalizedPartner);
+  if (!state || state.isLoading) return;
+  if (state.nextCursor === null || state.nextCursor <= 0) return;
+
+  const previousHeight = messagesList.scrollHeight;
+  const previousTop = messagesList.scrollTop;
+  const loaded = await loadDirectHistoryPage(normalizedPartner, {
+    before: state.nextCursor,
+    mode: "prepend",
+    reset: false,
+  });
+  if (!loaded) return;
+
+  renderUserList();
+  if (activeChat.type === "direct" && isSameLogin(activeChat.partner, normalizedPartner)) {
+    renderActiveChat({
+      preserveScrollPosition: true,
+      previousHeight,
+      previousTop,
+      scrollToBottom: false,
+    });
+  }
+}
+
+function maybeLoadOlderDirectHistory() {
+  if (!messagesList) return;
+  if (activeChat.type !== "direct" || !activeChat.partner) return;
+  if (messagesList.scrollTop > DIRECT_HISTORY_TOP_THRESHOLD) return;
+  void loadOlderDirectHistory(activeChat.partner);
+}
+
+function getSendCooldownRemainingMs() {
+  const elapsed = Date.now() - lastSentMessageAt;
+  return Math.max(0, SEND_COOLDOWN_MS - elapsed);
+}
+
+function syncSendCooldown(remainingMs) {
+  const safeRemaining = Math.max(0, Number(remainingMs) || 0);
+  lastSentMessageAt = Date.now() - (SEND_COOLDOWN_MS - safeRemaining);
+}
+
+function showSendCooldownNotice(remainingMs) {
+  const seconds = Math.max(1, Math.ceil((Number(remainingMs) || 0) / 1000));
+  pushChatNotification({
+    title: "Ограничение отправки",
+    body: `Следующее сообщение можно отправить через ${seconds} сек.`,
+    autoDismissMs: 1800,
+    autoDismissWhenVisible: true,
+  });
 }
 
 function updateChatHeader() {
   if (!chatTitleText || !chatContext || !backToPublic) return;
+  const room = getCurrentChatRoom();
   if (activeChat.type === "direct" && activeChat.partner) {
     chatTitleText.textContent = "Личное сообщение";
+    chatTitleText.classList.remove("is-public-title");
     chatContext.textContent = `с ${activeChat.partner}`;
     chatContext.classList.remove("hidden");
     chatContext.classList.add("is-direct");
-    backToPublic.classList.remove("hidden");
-  } else {
-    chatTitleText.textContent = "БРО ЧАТ";
+    backToPublic.classList.add("hidden");
+    if (chatSettingsButton) {
+      chatSettingsButton.classList.add("hidden");
+    }
+    return;
+  }
+
+  if (activeChat.type === "notes") {
+    chatTitleText.textContent = "Личные заметки";
+    chatTitleText.classList.remove("is-public-title");
     chatContext.textContent = "";
     chatContext.classList.add("hidden");
     chatContext.classList.remove("is-direct");
     backToPublic.classList.add("hidden");
+    if (chatSettingsButton) {
+      chatSettingsButton.classList.add("hidden");
+    }
+    return;
+  }
+
+  if (activeChat.type === "public") {
+    chatTitleText.textContent = room?.title || DEFAULT_CHAT_ROOM_TITLE;
+    chatTitleText.classList.add("is-public-title");
+    chatContext.textContent = "";
+    chatContext.classList.add("hidden");
+    chatContext.classList.remove("is-direct");
+    backToPublic.classList.add("hidden");
+    if (chatSettingsButton) {
+      chatSettingsButton.classList.remove("hidden");
+    }
+    return;
+  }
+
+  chatTitleText.textContent = "Контакты";
+  chatTitleText.classList.remove("is-public-title");
+  chatContext.textContent = "";
+  chatContext.classList.add("hidden");
+  chatContext.classList.remove("is-direct");
+  backToPublic.classList.add("hidden");
+  if (chatSettingsButton) {
+    chatSettingsButton.classList.add("hidden");
   }
 }
 
@@ -1983,7 +5261,87 @@ function registerDirectUnread(partner) {
   directUnreadCounts.set(partner, next);
 }
 
-function renderActiveChat() {
+async function markDirectDialogReadOnServer(partner) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner || !socket.connected || !currentLogin) return;
+  try {
+    await emitWithAck("markDirectDialogRead", { partner: normalizedPartner });
+  } catch (_) {
+    // ignore transient socket errors
+  }
+}
+
+function notifyDirectUnreadSummary() {
+  if (directUnreadNoticeShown) return;
+  const unreadEntries = Array.from(directUnreadCounts.entries()).filter(([, count]) => count > 0);
+  if (unreadEntries.length === 0) return;
+  directUnreadNoticeShown = true;
+  unreadEntries.sort((a, b) => b[1] - a[1]);
+  const [topPartner] = unreadEntries[0];
+  const totalUnread = unreadEntries.reduce((sum, [, count]) => sum + Number(count || 0), 0);
+  const dialogCount = unreadEntries.length;
+  const body =
+    dialogCount === 1
+      ? `У вас ${totalUnread} непрочитанных сообщений от ${topPartner}.`
+      : `У вас ${totalUnread} непрочитанных личных сообщений в ${dialogCount} диалогах.`;
+  pushChatNotification({
+    title: "Личные сообщения",
+    body,
+    actionLabel: "Открыть",
+    onAction: () => setActiveChat("direct", topPartner),
+    autoDismissMs: 6000,
+    autoDismissWhenVisible: false,
+    chatType: "direct",
+    partner: topPartner,
+  });
+}
+
+function updateChatViewMode() {
+  const isHome = activeChat.type === "home";
+  const isNotes = activeChat.type === "notes";
+  const hasNotesMessages = getNotesHistory().length > 0;
+  if (homeView) {
+    homeView.classList.toggle("hidden", !isHome);
+  }
+  if (notesView) {
+    notesView.classList.toggle("hidden", !(isNotes && !hasNotesMessages));
+  }
+  if (messagesList) {
+    messagesList.classList.toggle("hidden", isHome || (isNotes && !hasNotesMessages));
+  }
+  if (messageForm) {
+    messageForm.classList.toggle("hidden", isHome);
+  }
+  if (replyPreview) {
+    replyPreview.classList.toggle("hidden", isHome || isNotes || !replyTarget);
+  }
+  if (unreadIndicator && isHome) {
+    unreadIndicator.classList.add("hidden");
+  }
+  if (attachmentPreview && isHome) {
+    attachmentPreview.classList.add("hidden");
+  }
+  if (scrollToLatestButton) {
+    if (isHome) {
+      scrollToLatestButton.classList.add("hidden");
+    } else {
+      updateScrollToLatestButton();
+    }
+  }
+}
+
+function renderActiveChat({
+  preserveScrollPosition = false,
+  previousHeight = 0,
+  previousTop = 0,
+  scrollToBottom = true,
+} = {}) {
+  const renderToken = ++activeChatRenderToken;
+  updateChatViewMode();
+  if (activeChat.type === "home") {
+    clearUnreadMessages();
+    return;
+  }
   if (!messagesList) return;
   messagesList.innerHTML = "";
   messageElements.clear();
@@ -1992,6 +5350,8 @@ function renderActiveChat() {
   const items =
     activeChat.type === "direct" && activeChat.partner
       ? getDirectHistory(activeChat.partner)
+      : activeChat.type === "notes"
+        ? getNotesHistory()
       : publicHistory;
   items.forEach((item) => {
     if (item.system) {
@@ -2007,14 +5367,40 @@ function renderActiveChat() {
       silent: true,
     });
   });
-  scrollMessagesToBottom();
+
+  if (preserveScrollPosition) {
+    const nextHeight = messagesList.scrollHeight;
+    const delta = nextHeight - previousHeight;
+    messagesList.scrollTop = Math.max(0, previousTop + delta);
+    updateScrollToLatestButton();
+    return;
+  }
+
+  if (scrollToBottom) {
+    stabilizeScrollToBottom(renderToken);
+  }
+  requestAnimationFrame(updateScrollToLatestButton);
 }
 
 function setActiveChat(type, partner = null) {
-  const nextType = type === "direct" ? "direct" : "public";
-  activeChat = { type: nextType, partner: nextType === "direct" ? partner : null };
-  if (nextType === "direct" && partner) {
-    clearDirectUnread(partner);
+  let nextType =
+    type === "direct" ? "direct" : type === "notes" ? "notes" : type === "home" ? "home" : "public";
+  const normalizedPartner = nextType === "direct" ? normalizeLoginValue(partner) : null;
+  if (nextType === "direct" && !normalizedPartner) {
+    nextType = "home";
+  }
+
+  activeChat = {
+    type: nextType,
+    partner: nextType === "direct" ? normalizedPartner : null,
+  };
+
+  if (nextType === "direct" && normalizedPartner) {
+    getDirectHistory(normalizedPartner);
+    getDirectHistoryPaging(normalizedPartner);
+    clearDirectUnread(normalizedPartner);
+    void markDirectDialogReadOnServer(normalizedPartner);
+    void ensureDirectHistoryLoaded(normalizedPartner);
   }
   if (nextType !== "public") {
     mentionTarget = null;
@@ -2023,11 +5409,14 @@ function setActiveChat(type, partner = null) {
   updateMuteToggle();
   closeDmPopup();
   hideReplyPreview();
+  cancelMessageEdit({ clearInput: true });
   renderActiveChat();
   updatePublicShortcutVisibility();
   if (typeof renderUserList === "function") {
     renderUserList();
   }
+  persistActiveChatState();
+  syncPresenceActivity();
   maybeAutoDismissVisibleNotifications();
 }
 
@@ -2038,18 +5427,59 @@ function getStickerPayload(text) {
   return stickerMap.get(match[1]) || null;
 }
 
-const SCROLL_THRESHOLD = 40;
-
 function isMessagesNearBottom() {
   if (!messagesList) return true;
+  const threshold = 40;
   const distance =
     messagesList.scrollHeight - messagesList.scrollTop - messagesList.clientHeight;
-  return distance <= SCROLL_THRESHOLD;
+  return distance <= threshold;
 }
 
 function scrollMessagesToBottom() {
   if (!messagesList) return;
   messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+function updateScrollToLatestButton() {
+  if (!scrollToLatestButton) return;
+  const hasActiveChat =
+    activeChat.type === "public" || activeChat.type === "direct" || activeChat.type === "notes";
+  const shouldShow =
+    hasActiveChat &&
+    Boolean(messagesList) &&
+    !messagesList.classList.contains("hidden") &&
+    !isMessagesNearBottom();
+  scrollToLatestButton.classList.toggle("hidden", !shouldShow);
+}
+
+function stabilizeScrollToBottom(renderToken) {
+  if (!messagesList) return;
+  const safeScroll = () => {
+    if (renderToken !== activeChatRenderToken) return;
+    scrollMessagesToBottom();
+  };
+
+  safeScroll();
+  requestAnimationFrame(safeScroll);
+  [80, 180, 320, 550, 900].forEach((delayMs) => {
+    setTimeout(safeScroll, delayMs);
+  });
+
+  const mediaNodes = messagesList.querySelectorAll("img, video, audio");
+  mediaNodes.forEach((node) => {
+    const tag = String(node.tagName || "").toUpperCase();
+    const isReady =
+      (tag === "IMG" && Boolean(node.complete)) ||
+      ((tag === "VIDEO" || tag === "AUDIO") && Number(node.readyState || 0) >= 1);
+    if (isReady) return;
+
+    const onReady = () => {
+      safeScroll();
+    };
+    node.addEventListener("load", onReady, { once: true });
+    node.addEventListener("error", onReady, { once: true });
+    node.addEventListener("loadedmetadata", onReady, { once: true });
+  });
 }
 
 function updateUnreadIndicator() {
@@ -2116,6 +5546,7 @@ function appendMessageElement(messageEl, { countUnread }) {
   }
   processRecipientHighlights();
   maybeAutoDismissVisibleNotifications();
+  updateScrollToLatestButton();
 }
 
 function buildSystemMessageElement(payload) {
@@ -2175,13 +5606,20 @@ function renderMessage({
   attachments,
   avatar,
   avatarId,
+  avatarOriginal,
   messageId,
   readAll,
+  editedAt,
   chatType = "public",
 }) {
   const li = document.createElement("li");
   li.classList.add("message");
-  if (login === currentLogin) {
+  const isMine = currentLogin && isSameLogin(login, currentLogin);
+  const isOwnNoteMessage = Boolean(isMine && chatType === "notes");
+  const canEditOwnMessage = Boolean(
+    isMine && (chatType === "public" || chatType === "direct" || chatType === "notes")
+  );
+  if (isMine) {
     li.classList.add("me");
   }
   const resolvedMessageId =
@@ -2313,13 +5751,35 @@ function renderMessage({
     li.classList.add("sticker");
   }
 
-  const avatarUrl = avatar || getAvatarById(avatarId) || getAvatarForLogin(login);
-
-  const isMine = login === currentLogin;
+  const onlineUser = getOnlineUser(login);
+  const directPartnerVisual =
+    !isMine && chatType === "direct" ? getDirectDialogVisual(login) : null;
+  const { color: resolvedColor, avatarUrl, avatarOriginal: resolvedAvatarOriginal } =
+    resolveUserVisuals({
+      name: login,
+      user: onlineUser,
+      fallbackColor: isMine
+        ? currentColor || color
+        : directPartnerVisual?.color || color,
+      fallbackAvatar: isMine
+        ? currentAvatar || avatar
+        : directPartnerVisual?.avatar || avatar,
+      fallbackAvatarId: isMine
+        ? currentAvatar
+          ? null
+          : currentAvatarId || avatarId
+        : directPartnerVisual?.avatarId || avatarId,
+      fallbackAvatarOriginal: isMine
+        ? currentAvatarOriginal || currentAvatar || avatarOriginal || avatar
+        : directPartnerVisual?.avatarOriginal || avatarOriginal || avatar,
+    });
+  const avatarFullUrl = resolvedAvatarOriginal || avatarUrl;
   const initialCheckState = readAll ? "read" : "sent";
+  const isEdited = Boolean(editedAt);
 
   const statusHtml = `
     <div class="message-status">
+      ${isEdited ? '<span class="message-edited-badge">изменено</span>' : ""}
       <span class="message-time">${timeStr}</span>
       <span class="message-checks ${
         initialCheckState === "read" ? "is-read" : "is-sent"
@@ -2331,7 +5791,7 @@ function renderMessage({
 
   li.innerHTML = `
     <img class="message-avatar" src="${avatarUrl}" alt="${escapeHtml(login)}" />
-    <div class="message-bubble">
+    <div class="message-bubble${isOwnNoteMessage ? " has-note-delete" : ""}${canEditOwnMessage ? " has-message-edit" : ""}">
       <div class="meta">
         <button type="button" class="author" data-login="${escapeHtml(login)}">${escapeHtml(
           login
@@ -2351,6 +5811,16 @@ function renderMessage({
       ${attachmentsHtml}
       <div class="message-reactions" aria-label="Реакции"></div>
       <button type="button" class="reaction-trigger" title="Поставить реакцию">😊</button>
+      ${
+        canEditOwnMessage
+          ? '<button type="button" class="message-edit-trigger" title="Редактировать сообщение" aria-label="Редактировать сообщение">✎</button>'
+          : ""
+      }
+      ${
+        isOwnNoteMessage
+          ? '<button type="button" class="note-delete-trigger" title="Удалить заметку" aria-label="Удалить заметку">✕</button>'
+          : ""
+      }
     </div>
   `;
 
@@ -2375,25 +5845,35 @@ function renderMessage({
     });
   });
 
-  const baseColor = color || getColorForLogin(login);
-  const border = hexToRgba(baseColor, 0.8);
-  const glow = hexToRgba(baseColor, 0.35);
-  const bubbleBg =
-    login === currentLogin
-      ? hexToRgba(baseColor, 0.35)   // свои — поярче
-      : hexToRgba(baseColor, 0.10);  // чужие — лёгкая заливка
+  const baseColor = resolvedColor || getColorForLogin(login);
+  const border = hexToRgba(baseColor, isMine ? 0.74 : 0.62);
+  const glow = hexToRgba(baseColor, isMine ? 0.28 : 0.22);
+  const ownBubbleBase = normalizeHexColor(
+    currentOwnBubbleColor,
+    DEFAULT_OWN_BUBBLE_COLOR
+  );
+  const ownBubblePalette = getReadableOwnBubblePalette(ownBubbleBase);
+  const bubbleBg = isMine
+    ? hexToRgba(ownBubbleBase, 0.92)
+    : "rgba(12, 20, 42, 0.92)";
 
   const bubbleEl = li.querySelector(".message-bubble");
   if (bubbleEl) {
     bubbleEl.style.setProperty("--bubble-border", border);
     bubbleEl.style.setProperty("--bubble-bg", bubbleBg);
-    bubbleEl.style.boxShadow = `0 0 12px ${glow}`;
+    if (isMine) {
+      bubbleEl.style.setProperty("--own-text-color", ownBubblePalette.text);
+      bubbleEl.style.setProperty("--own-meta-color", ownBubblePalette.muted);
+      bubbleEl.style.setProperty("--own-link-color", ownBubblePalette.link);
+      bubbleEl.style.setProperty("--own-check-color", ownBubblePalette.checks);
+    }
+    bubbleEl.style.boxShadow = `0 0 12px ${glow}, 0 10px 18px rgba(15, 23, 42, 0.36)`;
   }
 
   const authorEl = li.querySelector(".author");
   if (authorEl) {
     authorEl.style.color = baseColor;
-    if (login && login !== currentLogin) {
+    if (login && !isMine) {
       authorEl.classList.add("is-clickable");
       authorEl.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -2408,12 +5888,16 @@ function renderMessage({
   if (avatarEl) {
     avatarEl.style.setProperty("--avatar-border", baseColor);
     avatarEl.style.setProperty("--avatar-glow", hexToRgba(baseColor, 0.45));
-    if (login !== currentLogin) {
-      avatarEl.classList.add("is-clickable");
-      avatarEl.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openDmPopup(login, avatarEl);
-      });
+    avatarEl.dataset.full = avatarFullUrl;
+    avatarEl.classList.add("is-clickable");
+    avatarEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openDmPopup(login, avatarEl);
+    });
+    if (!isMine) {
+      avatarEl.title = `Открыть аватар ${login}`;
+    } else {
+      avatarEl.title = "Открыть ваш аватар";
     }
   }
 
@@ -2449,6 +5933,9 @@ function renderMessage({
   if (bubbleEl) {
     bubbleEl.addEventListener("click", (event) => {
       event.stopPropagation();
+      if (editTarget) {
+        cancelMessageEdit({ clearInput: true });
+      }
       replyTarget = {
         login,
         text: String(text || ""),
@@ -2476,6 +5963,25 @@ function renderMessage({
       openReactionPicker(resolvedMessageId, reactionTrigger);
     });
   }
+  const messageEditTrigger = li.querySelector(".message-edit-trigger");
+  if (messageEditTrigger) {
+    messageEditTrigger.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await requestMessageEdit({
+        chatType,
+        messageId: resolvedMessageId,
+        currentText: text,
+        hasAttachments: safeAttachments.length > 0,
+      });
+    });
+  }
+  const noteDeleteTrigger = li.querySelector(".note-delete-trigger");
+  if (noteDeleteTrigger) {
+    noteDeleteTrigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteOwnNoteMessage(resolvedMessageId);
+    });
+  }
   const checkEl = li.querySelector(".message-checks");
   messageElements.set(resolvedMessageId, { reactionsEl, checkEl });
   updateReactionDisplay(resolvedMessageId);
@@ -2486,14 +5992,14 @@ function renderMessage({
 
   appendMessageElement(li, { countUnread: !local && !silent });
 
-  if (!silent && !local && login !== currentLogin) {
+  if (!silent && !local && !isMine) {
     playNotification(chatType);
   }
 
   const shouldHighlightForRecipient =
     !silent &&
     !local &&
-    login !== currentLogin &&
+    !isMine &&
     ((mentionTo && isSameLogin(mentionTo, currentLogin)) ||
       (replyTo?.login && isSameLogin(replyTo.login, currentLogin)));
   if (shouldHighlightForRecipient) {
@@ -2505,46 +6011,269 @@ function renderMessage({
 
 
 
-loginForm.addEventListener("submit", (e) => {
+loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const value = loginInput.value.trim();
-  if (!value) return;
-
-  currentLogin = value;
-  currentColor = (colorInput && colorInput.value) || "#38bdf8";
-  currentAvatar = customAvatar;
-  currentAvatarOriginal = customAvatarOriginal || customAvatar;
-  currentAvatarId = customAvatar ? null : selectedAvatarId || avatarCatalog[0]?.id || null;
-
-  socket.emit("join", {
-    login: value,
-    color: currentColor,
-    avatarId: currentAvatarId,
-    avatar: currentAvatar,
-    avatarOriginal: currentAvatarOriginal,
-  });
-
-  if (botsEnabled) {
-    socket.emit("startBots");
+  clearAuthFeedback("login");
+  const login = normalizeLoginValue(loginInput?.value);
+  const password = String(loginPasswordInput?.value || "").trim();
+  if (!login || !password) {
+    showAuthError("Введите ник и пароль.", "login");
+    return;
   }
 
-  loginScreen.classList.add("hidden");
-  chatScreen.classList.remove("hidden");
-  messageInput.focus();
-  setChatActivity(!document.hidden);
-  setActiveChat("public");
+  if (!socket.connected) {
+    socket.connect();
+  }
+  const response = await emitWithAck("loginAccount", { login, password });
+  if (!response?.ok) {
+    if (response?.reason === "email_not_verified") {
+      if (verifyLoginInput) verifyLoginInput.value = login;
+      if (verifyForm && verifyForm.classList.contains("hidden")) {
+        verifyForm.classList.remove("hidden");
+      }
+      if (verifyToggle) verifyToggle.textContent = "Скрыть подтверждение";
+      showAuthFeedback(
+        "verify",
+        response?.message || "Почта не подтверждена. Подтвердите кодом из письма.",
+        "info"
+      );
+    } else {
+      showAuthError(response?.message || "Не удалось войти.", "login");
+    }
+    return;
+  }
+
+  clearAllAuthFeedback();
+  applyServerUserToSession(response.user, { sessionToken: response.sessionToken });
+  loadHiddenDirectDialogs();
+  loadVisibleDirectDialogs();
+  lastJoinSignature = "";
+  openChatScreen({ restoreLastChat: true });
+  joinCurrentUserIfNeeded(true);
+  if (loginPasswordInput) {
+    loginPasswordInput.value = "";
+  }
 });
+
+if (registerForm) {
+  registerForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAuthFeedback("register");
+    const login = normalizeLoginValue(registerLoginInput?.value);
+    const email = String(registerEmailInput?.value || "").trim();
+    const password = String(registerPasswordInput?.value || "").trim();
+    const confirmPassword = String(registerPasswordConfirmInput?.value || "").trim();
+
+    if (!login || !email || !password || !confirmPassword) {
+      showAuthError("Заполните все поля регистрации.", "register");
+      return;
+    }
+    if (password !== confirmPassword) {
+      showAuthError("Пароли не совпадают.", "register");
+      return;
+    }
+    const passwordError = validateStrongPasswordClient(password);
+    if (passwordError) {
+      showAuthError(`Пароль слишком слабый: ${passwordError}`, "register");
+      return;
+    }
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+    const response = await emitWithAck("registerAccount", {
+      login,
+      email,
+      password,
+      color: (colorInput && colorInput.value) || "#38bdf8",
+      avatarId: customAvatar ? null : selectedAvatarId || avatarCatalog[0]?.id || null,
+      avatar: customAvatar || null,
+      avatarOriginal: customAvatarOriginal || customAvatar || null,
+    });
+
+    if (!response?.ok) {
+      showAuthError(response?.message || "Не удалось зарегистрироваться.", "register");
+      return;
+    }
+
+    if (response?.requiresVerification) {
+      if (verifyLoginInput) verifyLoginInput.value = login;
+      if (verifyForm && verifyForm.classList.contains("hidden")) {
+        verifyForm.classList.remove("hidden");
+      }
+      if (verifyToggle) verifyToggle.textContent = "Скрыть подтверждение";
+      showAuthFeedback(
+        "verify",
+        response?.message || "Письмо с кодом отправлено. Подтвердите почту.",
+        "success"
+      );
+      return;
+    }
+
+    clearAllAuthFeedback();
+    applyServerUserToSession(response.user, { sessionToken: response.sessionToken });
+    loadHiddenDirectDialogs();
+    loadVisibleDirectDialogs();
+    lastJoinSignature = "";
+    openChatScreen({ restoreLastChat: false });
+    joinCurrentUserIfNeeded(true);
+    if (loginPasswordInput) {
+      loginPasswordInput.value = "";
+    }
+  });
+}
+
+if (verifySendCodeButton) {
+  verifySendCodeButton.addEventListener("click", async () => {
+    clearAuthFeedback("verify");
+    const login = normalizeLoginValue(verifyLoginInput?.value);
+    if (!login) {
+      showAuthError("Укажите ник для отправки кода подтверждения.", "verify");
+      return;
+    }
+    if (!socket.connected) {
+      socket.connect();
+    }
+    const response = await emitWithAck("requestEmailVerification", { login });
+    if (!response?.ok) {
+      showAuthError(response?.message || "Не удалось отправить код.", "verify");
+      return;
+    }
+    showAuthFeedback("verify", response?.message || "Код подтверждения отправлен.", "success");
+  });
+}
+
+if (verifyForm) {
+  verifyForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAuthFeedback("verify");
+    const login = normalizeLoginValue(verifyLoginInput?.value);
+    const code = String(verifyCodeInput?.value || "").trim();
+    if (!login || !code) {
+      showAuthError("Введите ник и код подтверждения.", "verify");
+      return;
+    }
+    if (!socket.connected) {
+      socket.connect();
+    }
+    const response = await emitWithAck("verifyEmailCode", { login, code });
+    if (!response?.ok) {
+      showAuthError(response?.message || "Не удалось подтвердить почту.", "verify");
+      return;
+    }
+    showAuthFeedback(
+      "verify",
+      response?.message || "Почта подтверждена. Теперь можно войти.",
+      "success"
+    );
+    if (verifyCodeInput) verifyCodeInput.value = "";
+  });
+}
+
+if (resetSendCodeButton) {
+  resetSendCodeButton.addEventListener("click", async () => {
+    clearAuthFeedback("reset");
+    if (resetSendCodeButton.disabled) {
+      showAuthError(
+        "Очистите оба поля нового пароля, чтобы снова запросить код.",
+        "reset"
+      );
+      return;
+    }
+    const email = String(resetEmailInput?.value || "").trim();
+    if (!email) {
+      showAuthError("Укажите почту для восстановления.", "reset");
+      return;
+    }
+    if (!socket.connected) {
+      socket.connect();
+    }
+    const loginForReset = normalizeLoginValue(loginInput?.value);
+    const response = await emitWithAck("requestPasswordReset", {
+      email,
+      login: loginForReset || undefined,
+    });
+    if (!response?.ok) {
+      showAuthError(response?.message || "Не удалось отправить код восстановления.", "reset");
+      return;
+    }
+    showAuthFeedback("reset", response?.message || "Код восстановления отправлен.", "success");
+  });
+}
+
+if (resetForm) {
+  resetForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAuthFeedback("reset");
+    const email = String(resetEmailInput?.value || "").trim();
+    const code = String(resetCodeInput?.value || "").trim();
+    const newPassword = String(resetPasswordInput?.value || "").trim();
+    const confirmPassword = String(resetPasswordConfirmInput?.value || "").trim();
+
+    if (!email || !code || !newPassword || !confirmPassword) {
+      showAuthError("Заполните все поля восстановления.", "reset");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showAuthError("Пароли не совпадают.", "reset");
+      return;
+    }
+    const passwordError = validateStrongPasswordClient(newPassword);
+    if (passwordError) {
+      showAuthError(`Пароль слишком слабый: ${passwordError}`, "reset");
+      return;
+    }
+    if (!socket.connected) {
+      socket.connect();
+    }
+    const response = await emitWithAck("confirmPasswordReset", {
+      email,
+      code,
+      newPassword,
+    });
+    if (!response?.ok) {
+      showAuthError(response?.message || "Не удалось сменить пароль.", "reset");
+      return;
+    }
+    if (response?.login) {
+      if (loginInput) loginInput.value = response.login;
+      if (registerLoginInput) registerLoginInput.value = response.login;
+    }
+    showAuthFeedback(
+      "reset",
+      response?.login
+        ? `${response?.message || "Пароль изменён."} Логин для входа: ${response.login}`
+        : response?.message || "Пароль изменён. Можно входить.",
+      "success"
+    );
+    if (resetCodeInput) resetCodeInput.value = "";
+    if (resetPasswordInput) resetPasswordInput.value = "";
+    if (resetPasswordConfirmInput) resetPasswordConfirmInput.value = "";
+    updateResetSendCodeAvailability();
+  });
+}
 
 
 messageForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (isUploading) return;
 
+  if (editTarget) {
+    await submitMessageEditFromComposer();
+    return;
+  }
+
   const text = messageInput.value.trim();
   const files = Array.from((attachmentInput && attachmentInput.files) || []);
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
   if (!text && files.length === 0) return;
+
+  const cooldownRemaining = getSendCooldownRemainingMs();
+  if (cooldownRemaining > 0) {
+    showSendCooldownNotice(cooldownRemaining);
+    return;
+  }
 
   if (totalSize > 500 * 1024 * 1024) {
     alert("Суммарный размер вложений не должен превышать 500 МБ.");
@@ -2569,15 +6298,16 @@ messageForm.addEventListener("submit", async (e) => {
 
   const ts = new Date().toISOString();
   const messageId = `msg-${Date.now()}-${messageIdCounter++}`;
+  const isNotesChat = activeChat.type === "notes";
   const isDirectChat =
     activeChat.type === "direct" && activeChat.partner && activeChat.partner !== currentLogin;
   const directPartner = isDirectChat ? activeChat.partner : null;
   const mentionFromText =
-    !isDirectChat && !mentionTarget ? detectMentionTarget(text) : null;
+    !isDirectChat && !isNotesChat && !mentionTarget ? detectMentionTarget(text) : null;
   const mentionTo =
-    !isDirectChat && mentionTarget && mentionTarget !== currentLogin
+    !isDirectChat && !isNotesChat && mentionTarget && mentionTarget !== currentLogin
       ? mentionTarget
-      : mentionFromText && mentionFromText !== currentLogin
+      : !isNotesChat && mentionFromText && mentionFromText !== currentLogin
         ? mentionFromText
       : null;
 
@@ -2595,17 +6325,34 @@ messageForm.addEventListener("submit", async (e) => {
     attachments: uploadedAttachments,
     messageId,
     readAll: false,
-    chatType: isDirectChat ? "direct" : "public",
+    editedAt: null,
+    chatType: isDirectChat ? "direct" : isNotesChat ? "notes" : "public",
     mentionTo,
   };
 
   if (isDirectChat && directPartner) {
+    if (isDirectDialogHidden(directPartner)) {
+      restoreHiddenDialog(directPartner, { openChat: false, makeVisible: true });
+    } else {
+      addVisibleDirectDialog(directPartner);
+    }
     getDirectHistory(directPartner).push(localPayload);
+    renderUserList();
+  } else if (isNotesChat) {
+    personalNotes.push(localPayload);
+    persistPersonalNotes();
   } else {
-    publicHistory.push(localPayload);
+    mergePublicHistoryEntries([localPayload], { mode: "append", reset: false });
+    if (publicHistoryState.isInitialized) {
+      publicHistoryState.total = Math.max(publicHistoryState.total + 1, publicHistory.length);
+    }
   }
 
-  renderMessage(localPayload);
+  if (isNotesChat) {
+    renderActiveChat();
+  } else {
+    renderMessage(localPayload);
+  }
 
   // на сервер отправляем объект, а не голую строку
   if (isDirectChat && directPartner) {
@@ -2616,7 +6363,7 @@ messageForm.addEventListener("submit", async (e) => {
       replyTo: replyTarget ? { ...replyTarget } : null,
       attachments: uploadedAttachments,
     });
-  } else {
+  } else if (!isNotesChat) {
     socket.emit("chatMessage", {
       messageId,
       text,
@@ -2625,6 +6372,7 @@ messageForm.addEventListener("submit", async (e) => {
       mentionTo,
     });
   }
+  lastSentMessageAt = Date.now();
 
   messageInput.value = "";
   autoSizeTextarea(); // вернуть высоту
@@ -2646,11 +6394,25 @@ messageForm.addEventListener("submit", async (e) => {
 socket.on("connect", () => {
   chatStatus.textContent = "Подключено";
   chatStatus.style.color = "var(--accent)";
+  lastJoinSignature = "";
+  joinCurrentUserIfNeeded(true);
 });
 
 socket.on("disconnect", () => {
   chatStatus.textContent = "Отключено";
   chatStatus.style.color = "#f97373";
+});
+
+socket.on("sessionInvalid", (payload) => {
+  if (!currentSessionToken) return;
+  performLogout({ skipServer: true });
+  showAuthError(payload?.message || "Сессия истекла. Войдите заново.", "login");
+});
+
+socket.on("sendRateLimited", (payload) => {
+  const remainingMs = Math.max(0, Number(payload?.remainingMs) || SEND_COOLDOWN_MS);
+  syncSendCooldown(remainingMs);
+  showSendCooldownNotice(remainingMs);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -2682,33 +6444,89 @@ window.addEventListener("blur", () => setChatActivity(false));
 document.addEventListener("visibilitychange", () => {
   setChatActivity(!document.hidden);
 });
+setInterval(() => {
+  syncPresenceActivity();
+}, PRESENCE_HEARTBEAT_MS);
 
 socket.on("history", (items) => {
-  publicHistory.length = 0;
-  if (!Array.isArray(items)) return;
-
-  items.forEach((msg) => {
-    if (!botsEnabled && msg.isBot) return;
-    publicHistory.push({
-      messageId: msg.messageId,
-      login: msg.login,
-      color: msg.color,
-      text: msg.text,
-      timestamp: msg.timestamp,
-      avatar: msg.avatar,
-      avatarId: msg.avatarId,
-      avatarOriginal: msg.avatarOriginal,
-      attachments: msg.attachments || [],
-      replyTo: msg.replyTo || null,
-      mentionTo: msg.mentionTo || null,
-      readAll: Boolean(msg.readAll),
-      local: false,
-      chatType: "public",
-    });
-  });
+  const source = Array.isArray(items) ? items : [];
+  const filtered = source.filter((item) => botsEnabled || !item?.isBot);
+  mergePublicHistoryEntries(filtered, { mode: "append", reset: true });
+  publicHistoryState.total = Math.max(publicHistoryState.total, publicHistory.length);
+  publicHistoryState.isInitialized = true;
 
   if (activeChat.type === "public") {
     renderActiveChat();
+  }
+});
+
+socket.on("publicHistoryMeta", (meta) => {
+  updatePublicHistoryPaging(meta, { markInitialized: true });
+});
+
+socket.on("directDialogs", (dialogs) => {
+  if (!Array.isArray(dialogs)) return;
+  const dialogPartners = new Set();
+
+  dialogs.forEach((dialog) => {
+    const partner = normalizeLoginValue(dialog?.partner);
+    if (!partner || isSameLogin(partner, currentLogin)) return;
+    dialogPartners.add(partner);
+
+    setDirectDialogVisual(partner, {
+      color: dialog?.partnerColor,
+      avatar: dialog?.partnerAvatar,
+      avatarId: dialog?.partnerAvatarId,
+      avatarOriginal: dialog?.partnerAvatarOriginal,
+    });
+
+    const state = getDirectHistoryPaging(partner);
+    if (!state) return;
+
+    if (dialog?.lastMessage) {
+      mergeDirectHistoryEntries(partner, [dialog.lastMessage], {
+        mode: "append",
+        reset: false,
+      });
+    } else {
+      getDirectHistory(partner);
+    }
+
+    const totalValue = Number(dialog?.total);
+    const knownCount = getDirectHistory(partner).length;
+    const totalCount =
+      Number.isFinite(totalValue) && totalValue >= 0
+        ? totalValue
+        : knownCount;
+
+    state.total = totalCount;
+    if (!state.isInitialized) {
+      state.nextCursor = null;
+    }
+
+    const unreadValue = Math.max(0, Number(dialog?.unread) || 0);
+    if (activeChat.type === "direct" && isSameLogin(activeChat.partner, partner)) {
+      clearDirectUnread(partner);
+    } else if (unreadValue > 0) {
+      if (isDirectDialogHidden(partner)) {
+        restoreHiddenDialog(partner, { openChat: false, makeVisible: true });
+      }
+      directUnreadCounts.set(partner, unreadValue);
+    } else {
+      directUnreadCounts.delete(partner);
+    }
+  });
+
+  Array.from(directUnreadCounts.keys()).forEach((partner) => {
+    if (!dialogPartners.has(partner) && getDirectHistory(partner).length === 0) {
+      directUnreadCounts.delete(partner);
+    }
+  });
+
+  renderUserList();
+  notifyDirectUnreadSummary();
+  if (activeChat.type === "direct" && activeChat.partner) {
+    void ensureDirectHistoryLoaded(activeChat.partner);
   }
 });
 
@@ -2728,6 +6546,7 @@ socket.on("chatMessage", (payload) => {
     messageId,
     readAll,
     mentionTo,
+    editedAt,
   } = payload;
 
   if (login === currentLogin) return;
@@ -2745,13 +6564,20 @@ socket.on("chatMessage", (payload) => {
     replyTo: replyTo || null,
     mentionTo: mentionTo || null,
     readAll: Boolean(readAll),
+    editedAt: editedAt || null,
     local: false,
     chatType: "public",
   };
-  publicHistory.push(entry);
+  const beforeLength = publicHistory.length;
+  mergePublicHistoryEntries([entry], { mode: "append", reset: false });
+  if (publicHistory.length <= beforeLength) return;
+  if (publicHistoryState.isInitialized) {
+    publicHistoryState.total = Math.max(publicHistoryState.total + 1, publicHistory.length);
+  }
+  const latestEntry = publicHistory[publicHistory.length - 1];
 
   if (activeChat.type === "public") {
-    renderMessage(entry);
+    renderMessage(latestEntry);
   }
 
   if (login !== currentLogin && mentionTo && isSameLogin(mentionTo, currentLogin)) {
@@ -2790,50 +6616,58 @@ socket.on("chatMessage", (payload) => {
 });
 
 socket.on("directMessage", (payload) => {
-  const {
-    login,
-    text,
-    timestamp,
-    color,
-    replyTo,
-    attachments,
-    avatar,
-    avatarId,
-    avatarOriginal,
-    messageId,
-    to,
-  } = payload || {};
+  const login = normalizeLoginValue(payload?.login);
+  const to = normalizeLoginValue(payload?.to);
 
-  if (!login || login === currentLogin) return;
-  if (to && to !== currentLogin) return;
-  const partner = login === currentLogin ? to : login;
+  if (!login || isSameLogin(login, currentLogin)) return;
+  if (to && !isSameLogin(to, currentLogin)) return;
+  const partner = normalizeLoginValue(isSameLogin(login, currentLogin) ? to : login);
   if (!partner) return;
 
-  const entry = {
-    messageId,
-    login,
-    color,
-    text,
-    timestamp,
-    avatar,
-    avatarId,
-    avatarOriginal,
-    attachments: attachments || [],
-    replyTo: replyTo || null,
-    readAll: false,
-    local: false,
-    chatType: "direct",
-  };
+  if (isSameLogin(login, partner)) {
+    setDirectDialogVisual(partner, {
+      color: payload?.color,
+      avatar: payload?.avatar,
+      avatarId: payload?.avatarId,
+      avatarOriginal: payload?.avatarOriginal,
+    });
+  }
 
-  getDirectHistory(partner).push(entry);
+  const history = getDirectHistory(partner);
+  const beforeLength = history.length;
+  mergeDirectHistoryEntries(partner, [payload], {
+    mode: "append",
+    reset: false,
+  });
+  if (history.length <= beforeLength) {
+    return;
+  }
 
-  if (activeChat.type === "direct" && activeChat.partner === partner) {
+  const entry = history[history.length - 1];
+  const state = getDirectHistoryPaging(partner);
+  if (state?.isInitialized) {
+    state.total = Math.max(state.total + 1, history.length);
+  }
+
+  if (activeChat.type === "direct" && isSameLogin(activeChat.partner, partner)) {
     renderMessage(entry);
+    void markDirectDialogReadOnServer(partner);
   } else {
+    if (isDirectDialogHidden(partner)) {
+      restoreHiddenDialog(partner, { openChat: false, makeVisible: true });
+    }
     registerDirectUnread(partner);
-    renderUserList();
     playNotification("direct");
   }
+  renderUserList();
+});
+
+socket.on("chatMessageEdited", (payload) => {
+  applyPublicMessageEdited(payload);
+});
+
+socket.on("directMessageEdited", (payload) => {
+  applyDirectMessageEdited(payload);
 });
 
 socket.on("messageReadAll", (payload) => {
@@ -2857,6 +6691,20 @@ socket.on("userList", (users) => {
   renderUserList();
 });
 
+socket.on("contactsList", (items) => {
+  applyContacts(items);
+  renderUserList();
+});
+
+socket.on("chatRooms", (rooms) => {
+  applyChatRooms(rooms);
+  renderUserList();
+  updateChatHeader();
+  if (activeChat.type === "public") {
+    renderActiveChat();
+  }
+});
+
 function normalizeUserName(user) {
   return typeof user === "string" ? user : user?.login;
 }
@@ -2872,6 +6720,23 @@ function getOnlineUser(name) {
 function getEntryTimestamp(entry) {
   const value = entry?.timestamp ? Date.parse(entry.timestamp) : 0;
   return Number.isFinite(value) ? value : 0;
+}
+
+function getLatestPartnerVisualFromHistory(partner) {
+  const normalizedPartner = normalizeLoginValue(partner);
+  if (!normalizedPartner) return null;
+  const history = getDirectHistory(normalizedPartner);
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (!entry || !isSameLogin(entry.login, normalizedPartner)) continue;
+    return {
+      color: entry.color || null,
+      avatar: entry.avatar || null,
+      avatarId: entry.avatarId || null,
+      avatarOriginal: entry.avatarOriginal || entry.avatar || null,
+    };
+  }
+  return null;
 }
 
 function resolveUserVisuals({
@@ -2898,6 +6763,7 @@ function createUserListItem({
   name,
   color,
   avatarUrl,
+  avatarOriginal = null,
   unreadCount = 0,
   isClickable = false,
   isActive = false,
@@ -2913,6 +6779,13 @@ function createUserListItem({
   avatar.className = "user-avatar";
   avatar.src = avatarUrl;
   avatar.alt = name;
+  avatar.dataset.full = avatarOriginal || avatarUrl;
+  avatar.classList.add("is-clickable");
+  avatar.title = `Открыть аватар ${name}`;
+  avatar.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openLightbox(avatar.dataset.full || avatar.src, `Аватар ${name}`);
+  });
   avatar.style.setProperty("--avatar-border", color);
   avatar.style.setProperty("--avatar-glow", hexToRgba(color, 0.35));
 
@@ -2951,6 +6824,41 @@ function createUserListItem({
   return li;
 }
 
+function renderChatRoomsList() {
+  if (!chatRoomsList) return;
+  chatRoomsList.innerHTML = "";
+
+  const rooms = getChatRoomsSafe();
+  rooms.forEach((room) => {
+    const title = String(room?.title || "").trim() || DEFAULT_CHAT_ROOM_TITLE;
+    const color = getColorForLogin(title);
+    const avatarUrl =
+      (typeof room?.avatar === "string" && room.avatar.trim() && room.avatar) ||
+      getAvatarById(room?.avatarId) ||
+      getAvatarForLogin(title);
+    const avatarOriginal =
+      (typeof room?.avatarOriginal === "string" &&
+        room.avatarOriginal.trim() &&
+        room.avatarOriginal) ||
+      avatarUrl;
+    const roomId = String(room?.id || DEFAULT_CHAT_ROOM_ID);
+    const li = createUserListItem({
+      name: title,
+      color,
+      avatarUrl,
+      avatarOriginal,
+      isClickable: true,
+      isActive: activeChat.type === "public" && String(currentChatRoomId || "") === roomId,
+    });
+    li.classList.add("chat-room-item");
+    li.addEventListener("click", () => {
+      currentChatRoomId = roomId;
+      setActiveChat("public");
+    });
+    chatRoomsList.appendChild(li);
+  });
+}
+
 function renderSelfUser() {
   if (!selfList) return;
   selfList.innerHTML = "";
@@ -2970,7 +6878,13 @@ function renderSelfUser() {
     name: currentLogin,
     color,
     avatarUrl,
+    avatarOriginal,
     isSelf: true,
+  });
+  li.title = "Открыть личные заметки";
+  li.classList.add("is-clickable");
+  li.addEventListener("click", () => {
+    setActiveChat("notes");
   });
 
   selfList.appendChild(li);
@@ -2980,32 +6894,45 @@ function renderDirectList(onlineLogins) {
   if (!directList) return;
   directList.innerHTML = "";
 
-  const partners = new Set([
-    ...directHistories.keys(),
-    ...directUnreadCounts.keys(),
-  ]);
-  if (activeChat.type === "direct" && activeChat.partner) {
-    partners.add(activeChat.partner);
-  }
+  const partners = new Set(Array.from(visibleDirectDialogs));
+  directHistories.forEach((history, partner) => {
+    if (!Array.isArray(history) || history.length === 0) return;
+    const hasLocalOutgoing = history.some(
+      (entry) => entry?.local && isSameLogin(entry?.login, currentLogin)
+    );
+    if (hasLocalOutgoing) {
+      partners.add(partner);
+    }
+  });
+  directUnreadCounts.forEach((count, partner) => {
+    if (Number(count) > 0) {
+      partners.add(partner);
+    }
+  });
   partners.delete(currentLogin);
 
   const items = Array.from(partners)
+    .filter((partner) => !isDirectDialogHidden(partner))
     .map((partner) => {
       const history = getDirectHistory(partner);
+      const unreadCount = Math.max(0, Number(directUnreadCounts.get(partner) || 0));
       const lastEntry = history[history.length - 1] || null;
+      const cachedVisual = getDirectDialogVisual(partner);
       const onlineUser = getOnlineUser(partner);
-  const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
-    name: partner,
-    user: onlineUser,
-    fallbackColor: lastEntry?.color,
-    fallbackAvatar: lastEntry?.avatar,
-    fallbackAvatarId: lastEntry?.avatarId,
-    fallbackAvatarOriginal: lastEntry?.avatarOriginal,
-  });
+      const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
+        name: partner,
+        user: onlineUser,
+        fallbackColor: cachedVisual?.color,
+        fallbackAvatar: cachedVisual?.avatar,
+        fallbackAvatarId: cachedVisual?.avatarId,
+        fallbackAvatarOriginal: cachedVisual?.avatarOriginal,
+      });
       return {
         partner,
         color,
         avatarUrl,
+        avatarOriginal,
+        unreadCount,
         lastTimestamp: lastEntry ? getEntryTimestamp(lastEntry) : 0,
       };
     })
@@ -3020,16 +6947,33 @@ function renderDirectList(onlineLogins) {
   }
 
   items.forEach((item) => {
-    const unreadCount = directUnreadCounts.get(item.partner) || 0;
     const li = createUserListItem({
       name: item.partner,
       color: item.color,
       avatarUrl: item.avatarUrl,
-      unreadCount,
+      avatarOriginal: item.avatarOriginal,
+      unreadCount: item.unreadCount,
       isClickable: true,
       isActive: activeChat.type === "direct" && activeChat.partner === item.partner,
-      isOnline: onlineLogins.has(item.partner),
+      isOnline: onlineLogins.has(String(item.partner || "").toLowerCase()),
     });
+    li.classList.add("direct-dialog-item");
+    const hideButton = document.createElement("button");
+    hideButton.type = "button";
+    hideButton.className = "direct-hide-button";
+    hideButton.textContent = "✕";
+    hideButton.title = "Скрыть диалог";
+    hideButton.setAttribute("aria-label", `Скрыть диалог с ${item.partner}`);
+    hideButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      hideDirectDialog(item.partner);
+      if (activeChat.type === "direct" && isSameLogin(activeChat.partner, item.partner)) {
+        setActiveChat("home");
+      } else {
+        renderUserList();
+      }
+    });
+    li.appendChild(hideButton);
     li.addEventListener("click", () => {
       setActiveChat("direct", item.partner);
     });
@@ -3037,64 +6981,93 @@ function renderDirectList(onlineLogins) {
   });
 }
 
-function renderOnlineList() {
+function renderContactsList() {
   if (!usersList) return;
   usersList.innerHTML = "";
 
-  const onlineUsers = lastUserList
-    .map((user) => (typeof user === "string" ? { login: user } : user))
-    .filter((user) => user?.login && user.login !== currentLogin);
+  const onlineLogins = new Set(
+    lastUserList
+      .map((user) => normalizeUserName(user))
+      .filter((name) => name && !isSameLogin(name, currentLogin))
+      .map((name) => String(name).toLowerCase())
+  );
+  const contacts = Array.isArray(contactEntries) ? contactEntries : [];
 
-  onlineUsers.forEach((user) => {
-    const name = user.login;
-      const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({ name, user });
+  if (contacts.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "users-empty";
+    empty.textContent = "Контакты пока не добавлены";
+    usersList.appendChild(empty);
+    return;
+  }
+
+  contacts.forEach((contact) => {
+    const name = normalizeLoginValue(contact?.login);
+    if (!name || isSameLogin(name, currentLogin)) return;
+    const onlineUser = getOnlineUser(name);
+    const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
+      name,
+      user: onlineUser,
+      fallbackColor: contact?.color,
+      fallbackAvatar: contact?.avatar,
+      fallbackAvatarId: contact?.avatarId,
+      fallbackAvatarOriginal: contact?.avatarOriginal,
+    });
     const li = createUserListItem({
       name,
       color,
       avatarUrl,
+      avatarOriginal,
+      unreadCount: directUnreadCounts.get(name) || 0,
       isClickable: true,
+      isActive: activeChat.type === "direct" && isSameLogin(activeChat.partner, name),
+      isOnline: onlineLogins.has(String(name).toLowerCase()),
+    });
+    li.addEventListener("click", () => {
+      setActiveChat("direct", name);
+    });
+    usersList.appendChild(li);
+  });
+}
+
+function renderOnlineList() {
+  if (!onlineUsersList) return;
+  onlineUsersList.innerHTML = "";
+
+  const onlineUsers = lastUserList
+    .map((user) => (typeof user === "string" ? { login: user } : user))
+    .filter((user) => user?.login && !isSameLogin(user.login, currentLogin))
+    .sort((a, b) =>
+      String(a.login || "").localeCompare(String(b.login || ""), "ru", {
+        sensitivity: "base",
+      })
+    );
+
+  if (onlineUsers.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "users-empty";
+    empty.textContent = "Сейчас никого онлайн";
+    onlineUsersList.appendChild(empty);
+    return;
+  }
+
+  onlineUsers.forEach((user) => {
+    const name = normalizeLoginValue(user.login);
+    if (!name) return;
+    const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({ name, user });
+    const li = createUserListItem({
+      name,
+      color,
+      avatarUrl,
+      avatarOriginal,
+      isClickable: true,
+      isOnline: true,
     });
     li.addEventListener("click", () => {
       openProfileCard({ name, color, avatarUrl, avatarOriginal });
     });
-    usersList.appendChild(li);
+    onlineUsersList.appendChild(li);
   });
-
-  // фейковые ники ботов для нагрузочного теста
-  if (botsEnabled) {
-    FAKE_BOT_NAMES.forEach((name, index) => {
-      const li = document.createElement("li");
-      li.classList.add("fake-bot");
-
-      const baseColor = getColorForLogin(name);
-      const avatarOption = avatarCatalog[index % avatarCatalog.length];
-      const avatarUrl = avatarOption ? avatarOption.uri : getAvatarForLogin(name);
-
-      const avatar = document.createElement("img");
-      avatar.className = "user-avatar";
-      avatar.src = avatarUrl;
-      avatar.alt = name;
-      avatar.style.setProperty("--avatar-border", baseColor);
-      avatar.style.setProperty("--avatar-glow", hexToRgba(baseColor, 0.35));
-
-      const label = document.createElement("span");
-      label.className = "user-name";
-      label.textContent = name;
-
-      li.appendChild(avatar);
-      li.appendChild(label);
-
-      li.style.borderColor = hexToRgba(baseColor, 0.5);
-      li.style.color = baseColor;
-      li.style.boxShadow = `0 0 0 1px ${hexToRgba(baseColor, 0.2)}`;
-
-      li.addEventListener("click", () => {
-        openProfileCard({ name, color: baseColor, avatarUrl, avatarOriginal: avatarUrl });
-      });
-
-      usersList.appendChild(li);
-    });
-  }
 }
 
 function renderUserList() {
@@ -3102,10 +7075,13 @@ function renderUserList() {
     lastUserList
       .map((user) => normalizeUserName(user))
       .filter(Boolean)
+      .map((login) => String(login).toLowerCase())
   );
 
+  renderChatRoomsList();
   renderSelfUser();
   renderDirectList(onlineLogins);
+  renderContactsList();
   renderOnlineList();
   updatePublicShortcutVisibility();
 }
