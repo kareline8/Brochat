@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <title>БРО ЧАТ</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="style.css?v=20260322_0448" />
+  <link rel="stylesheet" href="style.css?v=20260322_1304" />
   </head>
   <body>
     <div class="app">
@@ -206,7 +206,7 @@
 	            <ul id="self-user" class="users-list users-list--compact"></ul>
 	          </section>
 
-	          <section class="sidebar-section">
+	          <section id="chat-rooms-section" class="sidebar-section">
 	            <h2>Мои чаты</h2>
 	            <ul id="chat-rooms-list" class="users-list users-list--compact"></ul>
 	          </section>
@@ -302,6 +302,13 @@
 	  <div class="chat-title">
 	    <span id="chat-title-text">БРО ЧАТ</span>
 	    <span id="chat-context" class="chat-context hidden"></span>
+      <button
+        id="public-participants-trigger"
+        class="public-participants-trigger hidden"
+        type="button"
+      >
+        (0) участников
+      </button>
 	    <button
 	      id="back-to-public"
       class="back-to-public hidden"
@@ -384,8 +391,10 @@
 	            <div class="home-view-card">
 	              <h3>Контакты и чаты</h3>
 	              <p>
-	                Выберите чат в разделе <b>Мои чаты</b> или откройте приват через
-	                <b>Мои контакты</b>.
+	                Выберите чат в разделе
+	                <button type="button" class="home-inline-link" data-home-nav="chats" data-target-id="chat-rooms-section">Мои чаты</button>
+	                или откройте приват через
+	                <button type="button" class="home-inline-link" data-home-nav="contacts" data-target-id="contacts-section">Мои контакты</button>.
 	              </p>
 	            </div>
 	          </section>
@@ -687,10 +696,47 @@
 	        >
 	          Сохранить
 	        </button>
+          <button
+            type="button"
+            id="chat-settings-members"
+            class="profile-action"
+          >
+            Участники
+          </button>
 	      </div>
 	    </div>
 
+      <div id="chat-members-modal" class="profile-modal hidden" role="dialog" aria-modal="true">
+        <div class="profile-card chat-members-card">
+          <button
+            type="button"
+            id="chat-members-close"
+            class="profile-close"
+            aria-label="Закрыть список участников чата"
+          >
+            ✕
+          </button>
+          <div class="self-profile-title">Участники чата</div>
+          <ul id="chat-members-list" class="chat-members-list"></ul>
+        </div>
+      </div>
+
+      <div id="participants-modal" class="profile-modal participants-modal hidden" role="dialog" aria-modal="true">
+        <div class="profile-card participants-card">
+          <button
+            type="button"
+            id="participants-close"
+            class="profile-close"
+            aria-label="Закрыть список участников"
+          >
+            ✕
+          </button>
+          <div class="self-profile-title">Участники публичного чата</div>
+          <ul id="participants-list" class="users-list participants-list"></ul>
+        </div>
+      </div>
+
 	    <script src="/socket.io/socket.io.js"></script>
-	    <script src="app.js?v=20260322_0502"></script>
+  <script src="app.js?v=20260322_1304"></script>
   </body>
 </html>

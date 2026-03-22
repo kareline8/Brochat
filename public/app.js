@@ -136,6 +136,7 @@ const REACTION_EMOJIS = [
 
 const messageReactions = new Map();
 const messageReactionSelections = new Map();
+const reactionRequestInFlight = new Set();
 const messageElements = new Map();
 const messageElementMap = new Map();
 const readMessageIds = new Set();
@@ -222,6 +223,7 @@ const onlineUsersSection = document.getElementById("online-users-section");
 const chatStatus = document.getElementById("chat-status");
 const chatTitleText = document.getElementById("chat-title-text");
 const chatContext = document.getElementById("chat-context");
+const publicParticipantsTrigger = document.getElementById("public-participants-trigger");
 const backToPublic = document.getElementById("back-to-public");
 const contactSearchButton = document.getElementById("contact-search-button");
 const contactsToggle = document.getElementById("contacts-toggle");
@@ -245,6 +247,7 @@ const unreadIndicator = document.getElementById("unread-indicator");
 const scrollToLatestButton = document.getElementById("scroll-to-latest");
 const notificationStack = document.getElementById("chat-notifications");
 const publicChatShortcut = document.getElementById("public-chat-shortcut");
+const homeNavLinks = document.querySelectorAll("[data-home-nav]");
 const botsToggleLabel = document.querySelector(".bots-toggle");
 const profileButton = document.getElementById("profile-button");
 const logoutButton = document.getElementById("logout-button");
@@ -260,6 +263,13 @@ const chatSettingsAvatarPreview = document.getElementById("chat-settings-avatar-
 const chatSettingsAvatarUpload = document.getElementById("chat-settings-avatar-upload");
 const chatSettingsNameInput = document.getElementById("chat-settings-name");
 const chatSettingsSave = document.getElementById("chat-settings-save");
+const chatSettingsMembers = document.getElementById("chat-settings-members");
+const chatMembersModal = document.getElementById("chat-members-modal");
+const chatMembersClose = document.getElementById("chat-members-close");
+const chatMembersList = document.getElementById("chat-members-list");
+const participantsModal = document.getElementById("participants-modal");
+const participantsClose = document.getElementById("participants-close");
+const participantsList = document.getElementById("participants-list");
 const selfProfileModal = document.getElementById("self-profile-modal");
 const selfProfileClose = document.getElementById("self-profile-close");
 const selfProfileAvatarPreview = document.getElementById("self-profile-avatar-preview");
@@ -379,8 +389,11 @@ let chatRoomAvatarDraft = null;
 let chatRoomAvatarOriginalDraft = null;
 let chatRoomAvatarIdDraft = null;
 let chatSettingsSavePending = false;
+let chatMembersLoading = false;
 let activeChatRenderToken = 0;
 let directUnreadNoticeShown = false;
+let publicParticipantsCache = [];
+let isPublicChatExcluded = false;
 const sectionCollapsedState = {
   contacts: false,
   dialogs: false,
@@ -1202,6 +1215,7 @@ function joinCurrentUserIfNeeded(force = false) {
     if (response?.user) {
       applyServerUserToSession(response.user);
     }
+    isPublicChatExcluded = Boolean(response?.publicChatExcluded);
     socket.emit("loadContacts", {}, (contactsResponse) => {
       if (!contactsResponse?.ok) return;
       applyContacts(contactsResponse.items);
@@ -1238,6 +1252,7 @@ function performLogout({ skipServer = false } = {}) {
   currentOwnMessageSide = DEFAULT_OWN_MESSAGE_SIDE;
   mentionTarget = null;
   lastJoinSignature = "";
+  isPublicChatExcluded = false;
 
   publicHistory.length = 0;
   publicHistoryState.nextCursor = null;
@@ -1874,6 +1889,37 @@ function ensureReactionState(messageId) {
   }
 }
 
+function applyReactionPayload(messageId, reactions, myReaction) {
+  ensureReactionState(messageId);
+  const reactionCounts = messageReactions.get(messageId);
+  const selected = messageReactionSelections.get(messageId);
+  if (!reactionCounts || !selected) return;
+
+  reactionCounts.clear();
+  if (reactions && typeof reactions === "object") {
+    Object.entries(reactions).forEach(([emoji, count]) => {
+      const nextCount = Number(count);
+      if (!emoji || !Number.isFinite(nextCount) || nextCount <= 0) return;
+      reactionCounts.set(emoji, Math.floor(nextCount));
+    });
+  }
+
+  if (typeof myReaction === "string") {
+    selected.clear();
+    if (myReaction && reactionCounts.has(myReaction)) {
+      selected.add(myReaction);
+    }
+  } else {
+    selected.forEach((emoji) => {
+      if (!reactionCounts.has(emoji)) {
+        selected.delete(emoji);
+      }
+    });
+  }
+
+  updateReactionDisplay(messageId);
+}
+
 function updateReactionDisplay(messageId) {
   const messageEntry = messageElements.get(messageId);
   if (!messageEntry) return;
@@ -1901,34 +1947,20 @@ function updateReactionDisplay(messageId) {
   });
 }
 
-function toggleReaction(messageId, emoji) {
-  ensureReactionState(messageId);
-  const reactionCounts = messageReactions.get(messageId);
-  const selected = messageReactionSelections.get(messageId);
-
-  if (selected.has(emoji)) {
-    selected.delete(emoji);
-    const next = (reactionCounts.get(emoji) || 1) - 1;
-    if (next <= 0) {
-      reactionCounts.delete(emoji);
-    } else {
-      reactionCounts.set(emoji, next);
-    }
-  } else {
-    selected.forEach((existingEmoji) => {
-      const next = (reactionCounts.get(existingEmoji) || 1) - 1;
-      if (next <= 0) {
-        reactionCounts.delete(existingEmoji);
-      } else {
-        reactionCounts.set(existingEmoji, next);
-      }
-    });
-    selected.clear();
-    selected.add(emoji);
-    reactionCounts.set(emoji, (reactionCounts.get(emoji) || 0) + 1);
+async function toggleReaction(messageId, emoji) {
+  const messageEntry = messageElements.get(messageId);
+  const chatType = messageEntry?.chatType || "public";
+  if (!messageId || !emoji) return;
+  if (chatType === "notes") return;
+  if (reactionRequestInFlight.has(messageId)) return;
+  reactionRequestInFlight.add(messageId);
+  try {
+    const response = await emitWithAck("messageReactionToggle", { messageId, emoji });
+    if (!response?.ok) return;
+    applyReactionPayload(messageId, response.reactions, response.myReaction ?? null);
+  } finally {
+    reactionRequestInFlight.delete(messageId);
   }
-
-  updateReactionDisplay(messageId);
 }
 
 function createReactionPicker() {
@@ -2100,6 +2132,15 @@ function setSidebarSectionCollapsed(key, collapsed) {
 
 function toggleSidebarSection(key) {
   setSidebarSectionCollapsed(key, !sectionCollapsedState[key]);
+}
+
+function navigateFromHomeCard(key, targetId) {
+  if (key === "contacts") {
+    setSidebarSectionCollapsed("contacts", false);
+  }
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function updatePublicShortcutVisibility() {
@@ -2436,6 +2477,7 @@ function openContactSearchModal() {
 function closeChatSettingsModal() {
   if (!chatSettingsModal) return;
   chatSettingsModal.classList.add("hidden");
+  closeChatMembersModal();
   chatSettingsSavePending = false;
   if (chatSettingsSave) {
     chatSettingsSave.removeAttribute("disabled");
@@ -2461,6 +2503,138 @@ function openChatSettingsModal() {
   }
   syncChatSettingsAvatarPreview();
   chatSettingsModal.classList.remove("hidden");
+}
+
+function closeChatMembersModal() {
+  if (!chatMembersModal) return;
+  chatMembersModal.classList.add("hidden");
+}
+
+function renderChatMembersList(items) {
+  if (!chatMembersList) return;
+  chatMembersList.innerHTML = "";
+  const source = Array.isArray(items) ? items : [];
+  if (source.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "users-empty";
+    empty.textContent = "Список участников пуст";
+    chatMembersList.appendChild(empty);
+    return;
+  }
+
+  source.forEach((item) => {
+    const login = normalizeLoginValue(item?.login);
+    if (!login) return;
+    const onlineUser = getOnlineUser(login);
+    const { color, avatarUrl } = resolveUserVisuals({
+      name: login,
+      user: onlineUser,
+      fallbackColor: item?.color,
+      fallbackAvatar: item?.avatar,
+      fallbackAvatarId: item?.avatarId,
+      fallbackAvatarOriginal: item?.avatarOriginal,
+    });
+
+    const row = document.createElement("li");
+    row.className = "chat-members-row";
+
+    const avatar = document.createElement("img");
+    avatar.className = "user-avatar";
+    avatar.src = avatarUrl;
+    avatar.alt = login;
+    avatar.style.setProperty("--avatar-border", color);
+    avatar.style.setProperty("--avatar-glow", hexToRgba(color, 0.35));
+
+    const meta = document.createElement("div");
+    meta.className = "chat-members-meta";
+
+    const name = document.createElement("div");
+    name.className = "chat-members-name";
+    name.style.color = color;
+    name.textContent = login;
+
+    const role = document.createElement("div");
+    role.className = "chat-members-role";
+    role.textContent = item?.role || "Участник";
+
+    meta.appendChild(name);
+    meta.appendChild(role);
+
+    const actions = document.createElement("div");
+    actions.className = "chat-members-actions";
+
+    const status = document.createElement("span");
+    status.className = `user-status ${item?.isOnline ? "is-online" : "is-offline"}`;
+    status.title = item?.isOnline ? "Онлайн" : "Офлайн";
+    actions.appendChild(status);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "chat-members-remove";
+    removeButton.textContent = "Исключить";
+    if (item?.isSelf) {
+      removeButton.disabled = true;
+      removeButton.title = "Нельзя исключить самого себя";
+    } else {
+      removeButton.addEventListener("click", async () => {
+        const confirmed = window.confirm("Точно удалить участника?");
+        if (!confirmed) return;
+        const room = getCurrentChatRoom();
+        const response = await emitWithAck("removeChatRoomMember", {
+          roomId: room?.id || DEFAULT_CHAT_ROOM_ID,
+          login,
+        });
+        if (!response?.ok) {
+          pushChatNotification({
+            title: "Участники",
+            body: response?.message || "Не удалось исключить участника.",
+            autoDismissMs: 2300,
+            autoDismissWhenVisible: true,
+          });
+          return;
+        }
+        await loadChatMembersForCurrentRoom({ silent: true });
+        void refreshPublicParticipants({ silent: true });
+      });
+    }
+    actions.appendChild(removeButton);
+
+    row.appendChild(avatar);
+    row.appendChild(meta);
+    row.appendChild(actions);
+    chatMembersList.appendChild(row);
+  });
+}
+
+async function loadChatMembersForCurrentRoom({ silent = false } = {}) {
+  const room = getCurrentChatRoom();
+  if (!room || !socket.connected) return false;
+  if (chatMembersLoading) return false;
+  chatMembersLoading = true;
+  const response = await emitWithAck("getChatRoomMembers", {
+    roomId: room.id,
+  });
+  chatMembersLoading = false;
+  if (!response?.ok) {
+    if (!silent) {
+      pushChatNotification({
+        title: "Участники",
+        body: response?.message || "Не удалось загрузить участников.",
+        autoDismissMs: 2200,
+        autoDismissWhenVisible: true,
+      });
+    }
+    return false;
+  }
+  renderChatMembersList(response.items);
+  return true;
+}
+
+async function openChatMembersModal() {
+  if (!chatMembersModal) return;
+  const loaded = await loadChatMembersForCurrentRoom({ silent: false });
+  if (!loaded) return;
+  chatMembersModal.classList.remove("hidden");
 }
 
 function queuePublicMention(login, { allowSelf = false } = {}) {
@@ -2824,6 +2998,17 @@ if (onlineToggle) {
   });
 }
 
+if (homeNavLinks.length > 0) {
+  homeNavLinks.forEach((link) => {
+    link.addEventListener("click", () => {
+      const key = link.dataset.homeNav || "";
+      const targetId = link.dataset.targetId || "";
+      if (!key || !targetId) return;
+      navigateFromHomeCard(key, targetId);
+    });
+  });
+}
+
 if (contactSearchClose) {
   contactSearchClose.addEventListener("click", () => {
     closeContactSearchModal();
@@ -2864,6 +3049,26 @@ if (contactSearchResults) {
   });
 }
 
+if (publicParticipantsTrigger) {
+  publicParticipantsTrigger.addEventListener("click", () => {
+    void openParticipantsModal();
+  });
+}
+
+if (participantsClose) {
+  participantsClose.addEventListener("click", () => {
+    closeParticipantsModal();
+  });
+}
+
+if (participantsModal) {
+  participantsModal.addEventListener("click", (event) => {
+    if (event.target === participantsModal) {
+      closeParticipantsModal();
+    }
+  });
+}
+
 if (chatSettingsButton) {
   chatSettingsButton.addEventListener("click", () => {
     openChatSettingsModal();
@@ -2880,6 +3085,26 @@ if (chatSettingsModal) {
   chatSettingsModal.addEventListener("click", (event) => {
     if (event.target === chatSettingsModal) {
       closeChatSettingsModal();
+    }
+  });
+}
+
+if (chatSettingsMembers) {
+  chatSettingsMembers.addEventListener("click", () => {
+    void openChatMembersModal();
+  });
+}
+
+if (chatMembersClose) {
+  chatMembersClose.addEventListener("click", () => {
+    closeChatMembersModal();
+  });
+}
+
+if (chatMembersModal) {
+  chatMembersModal.addEventListener("click", (event) => {
+    if (event.target === chatMembersModal) {
+      closeChatMembersModal();
     }
   });
 }
@@ -3651,6 +3876,41 @@ function clearAttachmentPreview() {
   attachmentPreview.classList.add("hidden");
 }
 
+function setComposerAttachments(files) {
+  if (!attachmentInput) return false;
+  const nextFiles = Array.isArray(files) ? files.filter(Boolean) : [];
+  if (typeof DataTransfer !== "function") {
+    if (nextFiles.length === 0) {
+      attachmentInput.value = "";
+      return true;
+    }
+    return false;
+  }
+  const transfer = new DataTransfer();
+  nextFiles.forEach((file) => transfer.items.add(file));
+  attachmentInput.files = transfer.files;
+  return true;
+}
+
+function clearComposerAttachments() {
+  if (!attachmentInput) return;
+  attachmentInput.value = "";
+  updateAttachmentCount();
+  clearAttachmentPreview();
+}
+
+function removeComposerAttachmentAt(index) {
+  if (!attachmentInput) return;
+  const files = Array.from(attachmentInput.files || []);
+  if (!Number.isInteger(index) || index < 0 || index >= files.length) return;
+  files.splice(index, 1);
+  if (!setComposerAttachments(files)) {
+    return;
+  }
+  updateAttachmentCount();
+  renderAttachmentPreview(Array.from(attachmentInput.files || []));
+}
+
 function renderAttachmentPreview(files) {
   if (!attachmentPreview) return;
   clearAttachmentPreview();
@@ -3658,7 +3918,7 @@ function renderAttachmentPreview(files) {
 
   const fragment = document.createDocumentFragment();
 
-  files.forEach((file) => {
+  files.forEach((file, index) => {
     if (!file) return;
     if (file.type && file.type.startsWith("image/")) {
       const url = URL.createObjectURL(file);
@@ -3666,7 +3926,8 @@ function renderAttachmentPreview(files) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "attachment-thumb";
-      button.setAttribute("aria-label", `Открыть изображение ${file.name}`);
+      button.setAttribute("aria-label", `Убрать вложение ${file.name}`);
+      button.title = `Убрать вложение ${file.name}`;
       const img = document.createElement("img");
       img.src = url;
       img.alt = file.name || "Изображение";
@@ -3675,13 +3936,20 @@ function renderAttachmentPreview(files) {
       button.appendChild(img);
       button.addEventListener("click", (event) => {
         event.stopPropagation();
-        openLightbox(url, img.alt);
+        removeComposerAttachmentAt(index);
       });
       fragment.appendChild(button);
     } else {
-      const item = document.createElement("div");
+      const item = document.createElement("button");
+      item.type = "button";
       item.className = "attachment-file";
       item.textContent = `${file.name} (${formatBytes(file.size)})`;
+      item.setAttribute("aria-label", `Убрать вложение ${file.name}`);
+      item.title = `Убрать вложение ${file.name}`;
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeComposerAttachmentAt(index);
+      });
       fragment.appendChild(item);
     }
   });
@@ -4080,6 +4348,12 @@ document.addEventListener("keydown", (event) => {
   if (dmPopup && !dmPopup.classList.contains("hidden")) {
     closeDmPopup();
   }
+  if (participantsModal && !participantsModal.classList.contains("hidden")) {
+    closeParticipantsModal();
+  }
+  if (chatMembersModal && !chatMembersModal.classList.contains("hidden")) {
+    closeChatMembersModal();
+  }
   if (editTarget) {
     cancelMessageEdit({ clearInput: true });
   }
@@ -4150,6 +4424,7 @@ document.addEventListener("paste", (event) => {
 
 if (clearMessageButton) {
   clearMessageButton.addEventListener("click", () => {
+    clearComposerAttachments();
     if (!messageInput) return;
     if (editTarget) {
       cancelMessageEdit({ clearInput: true });
@@ -4501,6 +4776,9 @@ function toPublicHistoryEntry(payload) {
     attachments: Array.isArray(payload?.attachments) ? payload.attachments : [],
     replyTo: payload?.replyTo || null,
     mentionTo: payload?.mentionTo || null,
+    reactions:
+      payload?.reactions && typeof payload.reactions === "object" ? payload.reactions : {},
+    myReaction: typeof payload?.myReaction === "string" ? payload.myReaction : null,
     readAll: Boolean(payload?.readAll),
     local: false,
     chatType: "public",
@@ -4745,6 +5023,9 @@ function toDirectHistoryEntry(payload) {
     avatarOriginal: resolvedAvatarOriginal,
     attachments: Array.isArray(payload?.attachments) ? payload.attachments : [],
     replyTo: payload?.replyTo || null,
+    reactions:
+      payload?.reactions && typeof payload.reactions === "object" ? payload.reactions : {},
+    myReaction: typeof payload?.myReaction === "string" ? payload.myReaction : null,
     readAll: Boolean(payload?.readAll),
     local: false,
     chatType: "direct",
@@ -5197,10 +5478,100 @@ function showSendCooldownNotice(remainingMs) {
   });
 }
 
+function closeParticipantsModal() {
+  if (!participantsModal) return;
+  participantsModal.classList.add("hidden");
+}
+
+function renderParticipantsModalList() {
+  if (!participantsList) return;
+  participantsList.innerHTML = "";
+  const onlineLogins = new Set(
+    lastUserList
+      .map((user) => normalizeUserName(user))
+      .filter(Boolean)
+      .map((login) => String(login).toLowerCase())
+  );
+  const source = Array.isArray(publicParticipantsCache) ? publicParticipantsCache : [];
+  const sorted = source
+    .map((item) => ({
+      ...item,
+      login: normalizeLoginValue(item?.login),
+    }))
+    .filter((item) => Boolean(item.login))
+    .sort((a, b) => String(a.login).localeCompare(String(b.login), "ru", { sensitivity: "base" }));
+
+  if (sorted.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "users-empty";
+    empty.textContent = "Участники не найдены";
+    participantsList.appendChild(empty);
+    return;
+  }
+
+  sorted.forEach((item) => {
+    const name = item.login;
+    const onlineUser = getOnlineUser(name);
+    const { color, avatarUrl, avatarOriginal } = resolveUserVisuals({
+      name,
+      user: onlineUser,
+      fallbackColor: item?.color,
+      fallbackAvatar: item?.avatar,
+      fallbackAvatarId: item?.avatarId,
+      fallbackAvatarOriginal: item?.avatarOriginal,
+    });
+    const isOnline = onlineLogins.has(String(name).toLowerCase());
+    const li = createUserListItem({
+      name,
+      color,
+      avatarUrl,
+      avatarOriginal,
+      isClickable: true,
+      isOnline,
+      isSelf: isSameLogin(name, currentLogin),
+    });
+    li.addEventListener("click", () => {
+      if (isSameLogin(name, currentLogin)) return;
+      openProfileCard({ name, color, avatarUrl, avatarOriginal });
+    });
+    participantsList.appendChild(li);
+  });
+}
+
+async function refreshPublicParticipants({ silent = true } = {}) {
+  if (!socket.connected || !currentLogin) return null;
+  const response = await emitWithAck("getPublicParticipants", {});
+  if (!response?.ok) {
+    if (!silent) {
+      pushChatNotification({
+        title: "Участники",
+        body: response?.message || "Не удалось загрузить участников.",
+        autoDismissMs: 2200,
+        autoDismissWhenVisible: true,
+      });
+    }
+    return null;
+  }
+  publicParticipantsCache = Array.isArray(response.items) ? response.items : [];
+  if (publicParticipantsTrigger) {
+    publicParticipantsTrigger.textContent = `(${publicParticipantsCache.length}) участников`;
+  }
+  renderParticipantsModalList();
+  return publicParticipantsCache;
+}
+
+async function openParticipantsModal() {
+  if (!participantsModal) return;
+  await refreshPublicParticipants({ silent: false });
+  participantsModal.classList.remove("hidden");
+}
+
 function updateChatHeader() {
   if (!chatTitleText || !chatContext || !backToPublic) return;
+  const header = chatTitleText.closest(".chat-header");
   const room = getCurrentChatRoom();
   if (activeChat.type === "direct" && activeChat.partner) {
+    if (header) header.classList.remove("has-public-participants");
     chatTitleText.textContent = "Личное сообщение";
     chatTitleText.classList.remove("is-public-title");
     chatContext.textContent = `с ${activeChat.partner}`;
@@ -5210,10 +5581,15 @@ function updateChatHeader() {
     if (chatSettingsButton) {
       chatSettingsButton.classList.add("hidden");
     }
+    if (publicParticipantsTrigger) {
+      publicParticipantsTrigger.classList.add("hidden");
+    }
+    closeParticipantsModal();
     return;
   }
 
   if (activeChat.type === "notes") {
+    if (header) header.classList.remove("has-public-participants");
     chatTitleText.textContent = "Личные заметки";
     chatTitleText.classList.remove("is-public-title");
     chatContext.textContent = "";
@@ -5223,10 +5599,15 @@ function updateChatHeader() {
     if (chatSettingsButton) {
       chatSettingsButton.classList.add("hidden");
     }
+    if (publicParticipantsTrigger) {
+      publicParticipantsTrigger.classList.add("hidden");
+    }
+    closeParticipantsModal();
     return;
   }
 
   if (activeChat.type === "public") {
+    if (header) header.classList.add("has-public-participants");
     chatTitleText.textContent = room?.title || DEFAULT_CHAT_ROOM_TITLE;
     chatTitleText.classList.add("is-public-title");
     chatContext.textContent = "";
@@ -5236,9 +5617,15 @@ function updateChatHeader() {
     if (chatSettingsButton) {
       chatSettingsButton.classList.remove("hidden");
     }
+    if (publicParticipantsTrigger) {
+      publicParticipantsTrigger.classList.remove("hidden");
+      publicParticipantsTrigger.textContent = `(${publicParticipantsCache.length}) участников`;
+    }
+    void refreshPublicParticipants({ silent: true });
     return;
   }
 
+  if (header) header.classList.remove("has-public-participants");
   chatTitleText.textContent = "Контакты";
   chatTitleText.classList.remove("is-public-title");
   chatContext.textContent = "";
@@ -5248,6 +5635,10 @@ function updateChatHeader() {
   if (chatSettingsButton) {
     chatSettingsButton.classList.add("hidden");
   }
+  if (publicParticipantsTrigger) {
+    publicParticipantsTrigger.classList.add("hidden");
+  }
+  closeParticipantsModal();
 }
 
 function clearDirectUnread(partner) {
@@ -5389,6 +5780,15 @@ function setActiveChat(type, partner = null) {
   if (nextType === "direct" && !normalizedPartner) {
     nextType = "home";
   }
+  if (nextType === "public" && isPublicChatExcluded) {
+    nextType = "home";
+    pushChatNotification({
+      title: "Публичный чат",
+      body: "Вы исключены из публичного чата.",
+      autoDismissMs: 2600,
+      autoDismissWhenVisible: true,
+    });
+  }
 
   activeChat = {
     type: nextType,
@@ -5480,6 +5880,14 @@ function stabilizeScrollToBottom(renderToken) {
     node.addEventListener("error", onReady, { once: true });
     node.addEventListener("loadedmetadata", onReady, { once: true });
   });
+}
+
+function forceScrollToBottomAfterOwnSend() {
+  if (!messagesList) return;
+  scrollMessagesToBottom();
+  clearUnreadMessages();
+  stabilizeScrollToBottom(activeChatRenderToken);
+  updateScrollToLatestButton();
 }
 
 function updateUnreadIndicator() {
@@ -5610,6 +6018,8 @@ function renderMessage({
   messageId,
   readAll,
   editedAt,
+  reactions = {},
+  myReaction = null,
   chatType = "public",
 }) {
   const li = document.createElement("li");
@@ -5983,8 +6393,8 @@ function renderMessage({
     });
   }
   const checkEl = li.querySelector(".message-checks");
-  messageElements.set(resolvedMessageId, { reactionsEl, checkEl });
-  updateReactionDisplay(resolvedMessageId);
+  messageElements.set(resolvedMessageId, { reactionsEl, checkEl, chatType });
+  applyReactionPayload(resolvedMessageId, reactions, typeof myReaction === "string" ? myReaction : null);
 
   if (!isMine && resolvedMessageId) {
     markMessageRead(resolvedMessageId);
@@ -6301,6 +6711,15 @@ messageForm.addEventListener("submit", async (e) => {
   const isNotesChat = activeChat.type === "notes";
   const isDirectChat =
     activeChat.type === "direct" && activeChat.partner && activeChat.partner !== currentLogin;
+  if (!isDirectChat && !isNotesChat && isPublicChatExcluded) {
+    pushChatNotification({
+      title: "Публичный чат",
+      body: "Вы исключены из публичного чата.",
+      autoDismissMs: 2600,
+      autoDismissWhenVisible: true,
+    });
+    return;
+  }
   const directPartner = isDirectChat ? activeChat.partner : null;
   const mentionFromText =
     !isDirectChat && !isNotesChat && !mentionTarget ? detectMentionTarget(text) : null;
@@ -6388,6 +6807,7 @@ messageForm.addEventListener("submit", async (e) => {
   }
   mentionTarget = null;
   hideEmojiPanel();
+  forceScrollToBottomAfterOwnSend();
 });
 
 
@@ -6407,6 +6827,26 @@ socket.on("sessionInvalid", (payload) => {
   if (!currentSessionToken) return;
   performLogout({ skipServer: true });
   showAuthError(payload?.message || "Сессия истекла. Войдите заново.", "login");
+});
+
+socket.on("publicChatAccessDenied", (payload) => {
+  isPublicChatExcluded = true;
+  if (activeChat.type === "public") {
+    setActiveChat("home");
+  }
+  pushChatNotification({
+    title: "Публичный чат",
+    body: payload?.message || "Вы исключены из публичного чата.",
+    autoDismissMs: 3000,
+    autoDismissWhenVisible: true,
+  });
+});
+
+socket.on("chatRoomMembersUpdated", () => {
+  void refreshPublicParticipants({ silent: true });
+  if (chatMembersModal && !chatMembersModal.classList.contains("hidden")) {
+    void loadChatMembersForCurrentRoom({ silent: true });
+  }
 });
 
 socket.on("sendRateLimited", (payload) => {
@@ -6547,6 +6987,8 @@ socket.on("chatMessage", (payload) => {
     readAll,
     mentionTo,
     editedAt,
+    reactions,
+    myReaction,
   } = payload;
 
   if (login === currentLogin) return;
@@ -6563,6 +7005,8 @@ socket.on("chatMessage", (payload) => {
     attachments: attachments || [],
     replyTo: replyTo || null,
     mentionTo: mentionTo || null,
+    reactions: reactions && typeof reactions === "object" ? reactions : {},
+    myReaction: typeof myReaction === "string" ? myReaction : null,
     readAll: Boolean(readAll),
     editedAt: editedAt || null,
     local: false,
@@ -6635,7 +7079,11 @@ socket.on("directMessage", (payload) => {
 
   const history = getDirectHistory(partner);
   const beforeLength = history.length;
-  mergeDirectHistoryEntries(partner, [payload], {
+  mergeDirectHistoryEntries(partner, [{
+    ...payload,
+    reactions: payload?.reactions && typeof payload.reactions === "object" ? payload.reactions : {},
+    myReaction: typeof payload?.myReaction === "string" ? payload.myReaction : null,
+  }], {
     mode: "append",
     reset: false,
   });
@@ -6670,6 +7118,12 @@ socket.on("directMessageEdited", (payload) => {
   applyDirectMessageEdited(payload);
 });
 
+socket.on("messageReactionUpdated", (payload) => {
+  const messageId = String(payload?.messageId || "").trim();
+  if (!messageId) return;
+  applyReactionPayload(messageId, payload?.reactions, null);
+});
+
 socket.on("messageReadAll", (payload) => {
   const messageId = payload?.messageId;
   if (!messageId) return;
@@ -6689,6 +7143,9 @@ socket.on("systemMessage", (payload) => {
 socket.on("userList", (users) => {
   lastUserList = Array.isArray(users) ? users : [];
   renderUserList();
+  if (participantsModal && !participantsModal.classList.contains("hidden")) {
+    renderParticipantsModalList();
+  }
 });
 
 socket.on("contactsList", (items) => {

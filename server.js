@@ -47,6 +47,7 @@ const LOGIN_BLOCK_MINUTES = 15;
 const DEFAULT_CHAT_ROOM_ID = "bro_chat_main";
 const DEFAULT_CHAT_ROOM_TITLE = "БРО ЧАТ";
 const DEFAULT_CHAT_ROOM_AVATAR_ID = "cool";
+const REACTION_EMOJIS = new Set(["👍", "❤️", "🔥", "😁", "🤯", "😢", "👏", "🎉", "🤔", "👀"]);
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER || "";
@@ -107,6 +108,15 @@ db.exec(`
     timestamp TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS message_reactions (
+    chat_type TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    login_norm TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (chat_type, message_id, login_norm)
+  );
+
   CREATE TABLE IF NOT EXISTS user_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     login TEXT NOT NULL,
@@ -157,6 +167,16 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES user_accounts(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS chat_room_exclusions (
+    chat_room_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    excluded_at TEXT NOT NULL,
+    excluded_by_login_norm TEXT,
+    PRIMARY KEY (chat_room_id, user_id),
+    FOREIGN KEY (chat_room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS chat_rooms (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -175,6 +195,10 @@ db.exec(`
     ON direct_messages(convo_key, id);
   CREATE INDEX IF NOT EXISTS idx_direct_messages_participants
     ON direct_messages(from_login_norm, to_login_norm);
+  CREATE INDEX IF NOT EXISTS idx_message_reactions_message
+    ON message_reactions(chat_type, message_id);
+  CREATE INDEX IF NOT EXISTS idx_message_reactions_login
+    ON message_reactions(login_norm);
   CREATE INDEX IF NOT EXISTS idx_user_accounts_login_norm
     ON user_accounts(login_norm);
   CREATE INDEX IF NOT EXISTS idx_user_accounts_email_norm
@@ -189,6 +213,10 @@ db.exec(`
     ON user_contacts(contact_user_id);
   CREATE INDEX IF NOT EXISTS idx_direct_dialog_reads_user
     ON direct_dialog_reads(user_id);
+  CREATE INDEX IF NOT EXISTS idx_chat_room_exclusions_room
+    ON chat_room_exclusions(chat_room_id);
+  CREATE INDEX IF NOT EXISTS idx_chat_room_exclusions_user
+    ON chat_room_exclusions(user_id);
 `);
 
 function ensureTableColumn(tableName, columnName, definition) {
@@ -521,6 +549,71 @@ const searchUsersCountStmt = db.prepare(`
   FROM user_accounts a
   WHERE a.login_norm <> @self_login_norm
     AND (@query_norm = '' OR a.login_norm LIKE @query_like)
+`);
+const publicParticipantsAllStmt = db.prepare(`
+  SELECT
+    a.id,
+    a.login,
+    a.login_norm,
+    a.color,
+    a.avatar_id,
+    a.avatar,
+    a.avatar_original
+  FROM user_accounts a
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM chat_room_exclusions x
+    WHERE x.chat_room_id = @chat_room_id
+      AND x.user_id = a.id
+  )
+  ORDER BY a.login COLLATE NOCASE ASC
+`);
+const upsertChatRoomExclusionStmt = db.prepare(`
+  INSERT INTO chat_room_exclusions (
+    chat_room_id, user_id, excluded_at, excluded_by_login_norm
+  ) VALUES (
+    @chat_room_id, @user_id, @excluded_at, @excluded_by_login_norm
+  )
+  ON CONFLICT(chat_room_id, user_id) DO UPDATE SET
+    excluded_at = excluded.excluded_at,
+    excluded_by_login_norm = excluded.excluded_by_login_norm
+`);
+const chatRoomExclusionByUserStmt = db.prepare(`
+  SELECT 1
+  FROM chat_room_exclusions
+  WHERE chat_room_id = @chat_room_id
+    AND user_id = @user_id
+  LIMIT 1
+`);
+const upsertMessageReactionStmt = db.prepare(`
+  INSERT INTO message_reactions (
+    chat_type, message_id, login_norm, emoji, updated_at
+  ) VALUES (
+    @chat_type, @message_id, @login_norm, @emoji, @updated_at
+  )
+  ON CONFLICT(chat_type, message_id, login_norm) DO UPDATE SET
+    emoji = excluded.emoji,
+    updated_at = excluded.updated_at
+`);
+const deleteMessageReactionStmt = db.prepare(`
+  DELETE FROM message_reactions
+  WHERE chat_type = @chat_type
+    AND message_id = @message_id
+    AND login_norm = @login_norm
+`);
+const messageReactionByUserStmt = db.prepare(`
+  SELECT emoji
+  FROM message_reactions
+  WHERE chat_type = @chat_type
+    AND message_id = @message_id
+    AND login_norm = @login_norm
+`);
+const messageReactionCountsStmt = db.prepare(`
+  SELECT emoji, COUNT(*) AS total
+  FROM message_reactions
+  WHERE chat_type = @chat_type
+    AND message_id = @message_id
+  GROUP BY emoji
 `);
 const chatRoomByIdStmt = db.prepare(`
   SELECT *
@@ -1364,6 +1457,52 @@ function mapDirectRowToPayload(row) {
   };
 }
 
+function getMessageReactionsSummary(chatType, messageId, viewerLogin) {
+  const safeChatType = chatType === "direct" ? "direct" : "public";
+  const safeMessageId = String(messageId || "").trim().slice(0, 80);
+  const viewerLoginNorm = normalizeLogin(viewerLogin);
+  const reactions = {};
+  if (!safeMessageId) {
+    return { reactions, myReaction: null };
+  }
+  const rows = messageReactionCountsStmt.all({
+    chat_type: safeChatType,
+    message_id: safeMessageId,
+  });
+  rows.forEach((row) => {
+    const emoji = String(row?.emoji || "");
+    const total = Number(row?.total || 0);
+    if (!emoji || total <= 0) return;
+    reactions[emoji] = total;
+  });
+  let myReaction = null;
+  if (viewerLoginNorm) {
+    myReaction =
+      messageReactionByUserStmt.get({
+        chat_type: safeChatType,
+        message_id: safeMessageId,
+        login_norm: viewerLoginNorm,
+      })?.emoji || null;
+  }
+  return { reactions, myReaction };
+}
+
+function withMessageReactions(payload, chatType, viewerLogin) {
+  if (!payload?.messageId) {
+    return {
+      ...payload,
+      reactions: {},
+      myReaction: null,
+    };
+  }
+  const summary = getMessageReactionsSummary(chatType, payload.messageId, viewerLogin);
+  return {
+    ...payload,
+    reactions: summary.reactions,
+    myReaction: summary.myReaction,
+  };
+}
+
 function savePublicMessage(payload) {
   const messageId = String(payload?.messageId || generateMessageId()).slice(0, 80);
   insertPublicMessageStmt.run({
@@ -1386,7 +1525,7 @@ function savePublicMessage(payload) {
   });
 }
 
-function getPublicHistoryPage(beforeCursor, limit) {
+function getPublicHistoryPage(beforeCursor, limit, viewerLogin = null) {
   const normalizedLimit = Math.max(
     1,
     Math.min(PUBLIC_HISTORY_PAGE_MAX, Number(limit) || PUBLIC_HISTORY_PAGE_DEFAULT)
@@ -1407,7 +1546,7 @@ function getPublicHistoryPage(beforeCursor, limit) {
   const items = rowsDesc
     .slice()
     .reverse()
-    .map((row) => mapPublicRowToPayload(row))
+    .map((row) => withMessageReactions(mapPublicRowToPayload(row), "public", viewerLogin))
     .filter(Boolean);
 
   return {
@@ -1619,7 +1758,7 @@ function getDirectHistoryPage(login, partner, beforeCursor, limit) {
   const items = rowsDesc
     .slice()
     .reverse()
-    .map((row) => mapDirectRowToPayload(row))
+    .map((row) => withMessageReactions(mapDirectRowToPayload(row), "direct", owner))
     .filter(Boolean);
 
   return {
@@ -1640,6 +1779,78 @@ function getSocketIdsByLogin(login) {
   return Array.from(users.entries())
     .filter(([, user]) => normalizeLogin(user.login) === target)
     .map(([socketId]) => socketId);
+}
+
+function getPublicParticipants(chatRoomId = DEFAULT_CHAT_ROOM_ID) {
+  const roomId = String(chatRoomId || DEFAULT_CHAT_ROOM_ID).trim() || DEFAULT_CHAT_ROOM_ID;
+  const onlineLoginNorms = new Set(
+    Array.from(users.values())
+      .map((user) => normalizeLogin(user?.login))
+      .filter(Boolean)
+  );
+  return publicParticipantsAllStmt.all({ chat_room_id: roomId }).map((row) => {
+    const login = normalizeLoginDisplay(row?.login);
+    const loginNorm = normalizeLogin(row?.login_norm || login);
+    return {
+      userId: Number(row?.id || 0),
+      login,
+      role: "Участник",
+      color: sanitizeColor(row?.color),
+      avatarId: row?.avatar ? null : row?.avatar_id || null,
+      avatar: row?.avatar || null,
+      avatarOriginal: row?.avatar_original || row?.avatar || null,
+      isOnline: Boolean(loginNorm && onlineLoginNorms.has(loginNorm)),
+    };
+  });
+}
+
+function isUserExcludedFromRoom(userId, chatRoomId = DEFAULT_CHAT_ROOM_ID) {
+  const safeUserId = Number(userId || 0);
+  const safeRoomId = String(chatRoomId || DEFAULT_CHAT_ROOM_ID).trim() || DEFAULT_CHAT_ROOM_ID;
+  if (!safeUserId) return false;
+  return Boolean(
+    chatRoomExclusionByUserStmt.get({
+      chat_room_id: safeRoomId,
+      user_id: safeUserId,
+    })
+  );
+}
+
+function toggleReactionForUser({ chatType, messageId, login, emoji }) {
+  const safeChatType = chatType === "direct" ? "direct" : "public";
+  const safeMessageId = String(messageId || "").trim().slice(0, 80);
+  const normalizedLogin = normalizeLogin(login);
+  if (!normalizedLogin || !safeMessageId || !REACTION_EMOJIS.has(emoji)) {
+    return { reactions: {}, myReaction: null };
+  }
+  const previousEmoji =
+    messageReactionByUserStmt.get({
+      chat_type: safeChatType,
+      message_id: safeMessageId,
+      login_norm: normalizedLogin,
+    })?.emoji || null;
+  let myReaction = null;
+  if (previousEmoji === emoji) {
+    deleteMessageReactionStmt.run({
+      chat_type: safeChatType,
+      message_id: safeMessageId,
+      login_norm: normalizedLogin,
+    });
+  } else {
+    upsertMessageReactionStmt.run({
+      chat_type: safeChatType,
+      message_id: safeMessageId,
+      login_norm: normalizedLogin,
+      emoji,
+      updated_at: new Date().toISOString(),
+    });
+    myReaction = emoji;
+  }
+  const { reactions } = getMessageReactionsSummary(safeChatType, safeMessageId, null);
+  return {
+    reactions,
+    myReaction,
+  };
 }
 
 function emitCurrentUserList() {
@@ -2226,6 +2437,7 @@ io.on("connection", (socket) => {
 
     const wasJoined = users.has(socket.id);
     users.set(socket.id, user);
+    const isExcludedFromPublic = isUserExcludedFromRoom(user.accountId, DEFAULT_CHAT_ROOM_ID);
 
     if (!wasJoined) {
       socket.emit("systemMessage", {
@@ -2243,14 +2455,25 @@ io.on("connection", (socket) => {
       });
     }
 
-    const publicPage = getPublicHistoryPage(null, PUBLIC_HISTORY_PAGE_DEFAULT);
-    if (publicPage.items.length > 0) {
-      socket.emit("history", publicPage.items);
+    if (!isExcludedFromPublic) {
+      const publicPage = getPublicHistoryPage(null, PUBLIC_HISTORY_PAGE_DEFAULT, user.login);
+      if (publicPage.items.length > 0) {
+        socket.emit("history", publicPage.items);
+      }
+      socket.emit("publicHistoryMeta", {
+        nextCursor: publicPage.nextCursor,
+        total: publicPage.total,
+      });
+    } else {
+      socket.emit("history", []);
+      socket.emit("publicHistoryMeta", {
+        nextCursor: null,
+        total: 0,
+      });
+      socket.emit("publicChatAccessDenied", {
+        message: "Вы исключены из публичного чата.",
+      });
     }
-    socket.emit("publicHistoryMeta", {
-      nextCursor: publicPage.nextCursor,
-      total: publicPage.total,
-    });
 
     const directDialogs = getDirectDialogsForUser(user, { bootstrapReadState: true });
     socket.emit("directDialogs", directDialogs);
@@ -2260,6 +2483,7 @@ io.on("connection", (socket) => {
     callback?.({
       ok: true,
       user,
+      publicChatExcluded: isExcludedFromPublic,
       sessionExpiresAt: account.session_expires_at || null,
     });
   });
@@ -2272,6 +2496,94 @@ io.on("connection", (socket) => {
       return;
     }
     callback({ ok: true, items: getContactsForUser(user) });
+  });
+
+  socket.on("getPublicParticipants", (payload, callback) => {
+    if (typeof callback !== "function") return;
+    const user = users.get(socket.id);
+    if (!user) {
+      callback({ ok: false, message: "Сначала выполните вход в чат." });
+      return;
+    }
+    const items = getPublicParticipants(DEFAULT_CHAT_ROOM_ID);
+    callback({
+      ok: true,
+      total: items.length,
+      items,
+    });
+  });
+
+  socket.on("getChatRoomMembers", (payload, callback) => {
+    if (typeof callback !== "function") return;
+    const user = users.get(socket.id);
+    if (!user) {
+      callback({ ok: false, message: "Сначала выполните вход в чат." });
+      return;
+    }
+    const roomId = String(payload?.roomId || DEFAULT_CHAT_ROOM_ID).trim() || DEFAULT_CHAT_ROOM_ID;
+    const room = chatRoomByIdStmt.get(roomId);
+    if (!room) {
+      callback({ ok: false, message: "Чат не найден." });
+      return;
+    }
+    const items = getPublicParticipants(roomId);
+    callback({
+      ok: true,
+      roomId,
+      total: items.length,
+      items: items.map((item) => ({
+        login: item.login,
+        role: item.role || "Участник",
+        isOnline: Boolean(item.isOnline),
+        isSelf: isSameLogin(item.login, user.login),
+      })),
+    });
+  });
+
+  socket.on("removeChatRoomMember", (payload, callback) => {
+    if (typeof callback !== "function") return;
+    const user = users.get(socket.id);
+    if (!user) {
+      callback({ ok: false, message: "Сначала выполните вход в чат." });
+      return;
+    }
+    const roomId = String(payload?.roomId || DEFAULT_CHAT_ROOM_ID).trim() || DEFAULT_CHAT_ROOM_ID;
+    const room = chatRoomByIdStmt.get(roomId);
+    if (!room) {
+      callback({ ok: false, message: "Чат не найден." });
+      return;
+    }
+    const targetLogin = normalizeLoginDisplay(payload?.login);
+    if (!targetLogin) {
+      callback({ ok: false, message: "Укажите участника." });
+      return;
+    }
+    if (isSameLogin(targetLogin, user.login)) {
+      callback({ ok: false, message: "Нельзя исключить самого себя." });
+      return;
+    }
+    const targetAccount = userAccountByLoginNormStmt.get(normalizeLogin(targetLogin));
+    if (!targetAccount) {
+      callback({ ok: false, message: "Участник не найден." });
+      return;
+    }
+    upsertChatRoomExclusionStmt.run({
+      chat_room_id: roomId,
+      user_id: Number(targetAccount.id),
+      excluded_at: new Date().toISOString(),
+      excluded_by_login_norm: normalizeLogin(user.login),
+    });
+
+    const targetSocketIds = new Set(getSocketIdsByLogin(targetAccount.login));
+    targetSocketIds.forEach((socketId) => {
+      io.to(socketId).emit("publicChatAccessDenied", {
+        roomId,
+        message: "Вы были исключены из публичного чата.",
+      });
+    });
+
+    io.emit("chatRoomMembersUpdated", { roomId });
+    callback({ ok: true });
   });
 
   socket.on("addContact", (payload, callback) => {
@@ -2399,12 +2711,16 @@ io.on("connection", (socket) => {
       callback({ ok: false, message: "Сначала выполните вход в чат." });
       return;
     }
+    if (isUserExcludedFromRoom(user.accountId, DEFAULT_CHAT_ROOM_ID)) {
+      callback({ ok: false, message: "Вы исключены из публичного чата." });
+      return;
+    }
 
     const limitValue = Math.max(
       1,
       Math.min(PUBLIC_HISTORY_PAGE_MAX, Number(payload?.limit) || PUBLIC_HISTORY_PAGE_DEFAULT)
     );
-    const page = getPublicHistoryPage(payload?.before, limitValue);
+    const page = getPublicHistoryPage(payload?.before, limitValue, user.login);
     callback({
       ok: true,
       items: page.items,
@@ -2478,6 +2794,10 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     if (!user) {
       callback?.({ ok: false, message: "Сначала выполните вход в чат." });
+      return;
+    }
+    if (isUserExcludedFromRoom(user.accountId, DEFAULT_CHAT_ROOM_ID)) {
+      callback?.({ ok: false, message: "Вы исключены из публичного чата." });
       return;
     }
 
@@ -2787,6 +3107,78 @@ io.on("connection", (socket) => {
     if (state.readers.size >= state.expectedReaders) {
       notifyReadAll(messageId);
     }
+  });
+
+  socket.on("messageReactionToggle", (payload, callback) => {
+    const user = users.get(socket.id);
+    if (!user) {
+      callback?.({ ok: false, message: "Сначала выполните вход в чат." });
+      return;
+    }
+
+    const messageId = String(payload?.messageId || "").trim().slice(0, 80);
+    const emoji = String(payload?.emoji || "").trim();
+    if (!messageId) {
+      callback?.({ ok: false, message: "Не найден идентификатор сообщения." });
+      return;
+    }
+    if (!REACTION_EMOJIS.has(emoji)) {
+      callback?.({ ok: false, message: "Некорректная реакция." });
+      return;
+    }
+
+    const publicMessage = publicMessageByIdStmt.get(messageId);
+    let chatType = "";
+    let directMessage = null;
+
+    if (publicMessage) {
+      chatType = "public";
+    } else {
+      directMessage = directMessageByIdStmt.get(messageId);
+      if (!directMessage) {
+        callback?.({ ok: false, message: "Сообщение не найдено." });
+        return;
+      }
+      const currentLoginNorm = normalizeLogin(user.login);
+      const fromNorm = normalizeLogin(directMessage.from_login_norm || directMessage.from_login);
+      const toNorm = normalizeLogin(directMessage.to_login_norm || directMessage.to_login);
+      if (!currentLoginNorm || (currentLoginNorm !== fromNorm && currentLoginNorm !== toNorm)) {
+        callback?.({ ok: false, message: "Нет доступа к этому сообщению." });
+        return;
+      }
+      chatType = "direct";
+    }
+
+    const result = toggleReactionForUser({
+      chatType,
+      messageId,
+      login: user.login,
+      emoji,
+    });
+
+    const updatePayload = {
+      chatType,
+      messageId,
+      reactions: result.reactions,
+    };
+
+    if (chatType === "public") {
+      io.emit("messageReactionUpdated", updatePayload);
+    } else if (directMessage) {
+      const targetIds = new Set([
+        ...getSocketIdsByLogin(directMessage.from_login),
+        ...getSocketIdsByLogin(directMessage.to_login),
+      ]);
+      targetIds.forEach((socketId) => {
+        io.to(socketId).emit("messageReactionUpdated", updatePayload);
+      });
+    }
+
+    callback?.({
+      ok: true,
+      ...updatePayload,
+      myReaction: result.myReaction,
+    });
   });
 
 
